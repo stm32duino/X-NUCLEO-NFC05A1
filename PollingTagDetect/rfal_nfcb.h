@@ -1,10 +1,74 @@
 
+/******************************************************************************
+  * \attention
+  *
+  * <h2><center>&copy; COPYRIGHT 2016 STMicroelectronics</center></h2>
+  *
+  * Licensed under ST MYLIBERTY SOFTWARE LICENSE AGREEMENT (the "License");
+  * You may not use this file except in compliance with the License.
+  * You may obtain a copy of the License at:
+  *
+  *        www.st.com/myliberty
+  *
+  * Unless required by applicable law or agreed to in writing, software 
+  * distributed under the License is distributed on an "AS IS" BASIS, 
+  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied,
+  * AND SPECIFICALLY DISCLAIMING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
+  * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  *
+******************************************************************************/
+
+/*
+ *      PROJECT:   ST25R391x firmware
+ *      Revision:
+ *      LANGUAGE:  ISO C99
+ */
+
+/*! \file rfal_nfcb.h
+ *
+ *  \author Gustavo Patricio
+ *
+ *  \brief Implementation of NFC-B (ISO14443B) helpers 
+ *  
+ *  It provides a NFC-B Poller (ISO14443B PCD) interface and 
+ *  also provides some NFC-B Listener (ISO14443B PICC) helpers
+ *
+ *  The definitions and helpers methods provided by this module are only
+ *  up to ISO14443-3 layer (excluding ATTRIB)
+ *  
+ *  
+ * \addtogroup RFAL
+ * @{
+ *
+ * \addtogroup RFAL-AL
+ * \brief RFAL Abstraction Layer
+ * @{
+ *
+ * \addtogroup NFC-B
+ * \brief RFAL NFC-B Module
+ * @{
+ * 
+ */
+
+
 #ifndef RFAL_NFCB_H
 #define RFAL_NFCB_H
 
+/*
+ ******************************************************************************
+ * INCLUDES
+ ******************************************************************************
+ */
+#include "st_errno.h"
+#include "rfal_rf.h"
 
-
-/* DEFINE */
+/*
+ ******************************************************************************
+ * GLOBAL DEFINES
+ ******************************************************************************
+ */
 
 #define RFAL_NFCB_FWTSENSB                       7680U                /*!< NFC-B FWT(SENSB)  Digital 2.0  B.3        */
 #define RFAL_NFCB_DFWT                           49152U               /*!< NFC-B dFWT Delta 2.0  7.9.1.3 & B.3       */
@@ -38,7 +102,11 @@
 #define RFAL_NFCB_SENSB_RES_SFGI_MASK            0x0FU   /*!< Bit mask for SFGI in SENSB_RES                         */
 #define RFAL_NFCB_SENSB_RES_SFGI_SHIFT           4U      /*!< Shift for SFGI in SENSB_RES                            */
 
-/* MACROS */
+/*
+******************************************************************************
+* GLOBAL MACROS
+******************************************************************************
+*/
 
 /*! Get device's FSCI given its SENSB_RES  Digital 1.1 7.6.2  */
 #define rfalNfcbGetFSCI( sensbRes )        ((((rfalNfcbSensbRes*)(sensbRes))->protInfo.FsciProType >> RFAL_NFCB_SENSB_RES_FSCI_SHIFT) & RFAL_NFCB_SENSB_RES_FSCI_MASK )
@@ -46,7 +114,11 @@
 /*! Checks if the given NFC-B device indicates ISO-DEP support */
 #define rfalNfcbIsIsoDepSupported( dev )  ( (((rfalNfcbListenDevice*)(dev))->sensbRes.protInfo.FsciProType & RFAL_NFCB_SENSB_RES_PROTO_ISO_MASK) != 0U )
 
-/* STRUCT */
+/*
+******************************************************************************
+* GLOBAL TYPES
+******************************************************************************
+*/
 
 /*! SENSB_REQ and ALLB_REQ param   Digital 1.1 7.6.1  */
 typedef enum
@@ -105,4 +177,55 @@ typedef struct
 }rfalNfcbListenDevice;
 
 
-#endif
+/*! ALLB_REQ (WUPB) and SENSB_REQ (REQB) Command Format   Digital 1.1  7.6.1 */
+typedef struct
+{
+    uint8_t  cmd;                            /*!< xxxxB_REQ: 05h       */
+    uint8_t  AFI;                            /*!< NFC Identifier       */
+    uint8_t  PARAM;                          /*!< Application Data     */
+} rfalNfcbSensbReq;
+
+/*! SLOT_MARKER Command format  Digital 1.1  7.7.1 */
+typedef struct
+{
+    uint8_t  APn;    /*!< Slot number 2..16 | 0101b */
+} rfalNfcbSlotMarker;
+
+/*! SLPB_REQ (HLTB) Command Format   Digital 1.1  7.8.1 */
+typedef struct
+{
+    uint8_t  cmd;                            /*!< SLPB_REQ: 50h        */
+    uint8_t  nfcid0[RFAL_NFCB_NFCID0_LEN];   /*!< NFC Identifier (PUPI)*/
+} rfalNfcbSlpbReq;
+
+
+/*! SLPB_RES (HLTB) Response Format   Digital 1.1  7.8.2 */
+typedef struct
+{
+    uint8_t  cmd;                            /*!< SLPB_RES: 00h        */
+} rfalNfcbSlpbRes;
+
+
+/*! RFAL NFC-B instance */
+typedef struct
+{
+    uint8_t  AFI;                            /*!< AFI to be used       */
+    uint8_t  PARAM;                          /*!< PARAM to be used     */
+} rfalNfcb;
+
+/*
+******************************************************************************
+* GLOBAL FUNCTION PROTOTYPES
+******************************************************************************
+*/
+
+
+#endif /* RFAL_NFCB_H */
+
+/**
+  * @}
+  *
+  * @}
+  *
+  * @}
+  */

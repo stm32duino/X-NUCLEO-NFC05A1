@@ -1,14 +1,68 @@
-#ifndef RFAL_ERROR_H
-#define RFAL_ERROR_H
+
+/******************************************************************************
+  * \attention
+  *
+  * <h2><center>&copy; COPYRIGHT 2016 STMicroelectronics</center></h2>
+  *
+  * Licensed under ST MYLIBERTY SOFTWARE LICENSE AGREEMENT (the "License");
+  * You may not use this file except in compliance with the License.
+  * You may obtain a copy of the License at:
+  *
+  *        www.st.com/myliberty
+  *
+  * Unless required by applicable law or agreed to in writing, software 
+  * distributed under the License is distributed on an "AS IS" BASIS, 
+  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied,
+  * AND SPECIFICALLY DISCLAIMING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
+  * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  *
+******************************************************************************/
 
 
-/* INCLUDE */
+/*
+ *      PROJECT:   STxxxx firmware
+ *      LANGUAGE:  ISO C99
+ */
+
+/*! \file st_errno.h
+ *
+ *  \author 
+ *
+ *  \brief Main error codes
+ *
+ */
+
+#ifndef ST_ERRNO_H
+#define ST_ERRNO_H
+
+/*
+******************************************************************************
+* INCLUDES
+******************************************************************************
+*/
 #include "Arduino.h"
 
-/* TYPEDEF */
-typedef uint16_t ReturnCode;
+/*
+******************************************************************************
+* GLOBAL DATA TYPES
+******************************************************************************
+*/
 
-/* DEFINE */
+typedef uint16_t      ReturnCode; /*!< Standard Return Code type from function. */
+
+/*
+******************************************************************************
+* DEFINES
+******************************************************************************
+*/
+
+
+/*
+ * Error codes to be used within the application.
+ * They are represented by an uint8_t
+ */
 
 #define ERR_NONE                           ((ReturnCode)0U)  /*!< no error occurred */
 #define ERR_NOMEM                          ((ReturnCode)1U)  /*!< not enough memory to perform the requested operation */
@@ -88,7 +142,16 @@ typedef uint16_t ReturnCode;
 #define ERR_INSERT_WARN_GRP(x)              (ERR_WARN_GRP    | (x))  /*!< Insert the i2c grp */
 #define ERR_INSERT_GENERIC_GRP(x)           (ERR_GENERIC_GRP | (x))  /*!< Insert the generic grp */
 
+
+/*
+******************************************************************************
+* GLOBAL MACROS
+******************************************************************************
+*/
+
 #define ERR_NO_MASK(x)                      ((uint16_t)(x) & 0x00FFU)    /*!< Mask the error number */
+
+
 
 /*! Common code to exit a function with the error if function f return error */
 #define EXIT_ON_ERR(r, f) \
@@ -98,4 +161,5 @@ typedef uint16_t ReturnCode;
         return (r);       \
     }
 
-#endif
+#endif /* ST_ERRNO_H */
+

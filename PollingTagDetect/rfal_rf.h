@@ -1,12 +1,95 @@
+
+/******************************************************************************
+  * \attention
+  *
+  * <h2><center>&copy; COPYRIGHT 2016 STMicroelectronics</center></h2>
+  *
+  * Licensed under ST MYLIBERTY SOFTWARE LICENSE AGREEMENT (the "License");
+  * You may not use this file except in compliance with the License.
+  * You may obtain a copy of the License at:
+  *
+  *        www.st.com/myliberty
+  *
+  * Unless required by applicable law or agreed to in writing, software 
+  * distributed under the License is distributed on an "AS IS" BASIS, 
+  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied,
+  * AND SPECIFICALLY DISCLAIMING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
+  * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  *
+******************************************************************************/
+
+
+/*
+ *      PROJECT:   ST25R391x firmware
+ *      Revision:
+ *      LANGUAGE:  ISO C99
+ */
+
+/*! \file rfal_rf.h
+ *
+ *  \author Gustavo Patricio 
+ *
+ *  \brief RF Abstraction Layer (RFAL)
+ *  
+ *  RFAL (RF Abstraction Layer) provides several functionalities required to 
+ *  perform RF/NFC communications. <br>The RFAL encapsulates the different 
+ *  RF ICs (ST25R3911, ST25R391x, etc) into a common and easy to use interface.
+ *  
+ *  It provides interfaces to configure the RF IC, set/get timings, modes, bit rates,
+ *  specific handlings, execute listen mode, etc. 
+ *  
+ *  Furthermore it provides a common interface to perform a Transceive operations.
+ *  The Transceive can be executed in a blocking or non blocking way.<br>
+ *  Additionally few specific Transceive methods are available to cope with the
+ *  specifics of these particular operations.
+ *  
+ *  The most common interfaces are:
+ *    <br>&nbsp; rfalInitialize()
+ *    <br>&nbsp; rfalSetFDTPoll()
+ *    <br>&nbsp; rfalSetFDTListen()
+ *    <br>&nbsp; rfalSetGT()
+ *    <br>&nbsp; rfalSetBitRate()
+ *    <br>&nbsp; rfalSetMode()
+ *    <br>&nbsp; rfalFieldOnAndStartGT()
+ *    <br>&nbsp; rfalFieldOff()
+ *    <br>&nbsp; rfalStartTransceive()
+ *    <br>&nbsp; rfalGetTransceiveStatus()
+ *    <br>&nbsp; rfalTransceiveBlockingTxRx()
+ *    
+ *  An usage example is provided here: \ref exampleRfalPoller.c
+ *  \example exampleRfalPoller.c
+ *    
+ * \addtogroup RFAL
+ * @{
+ * 
+ * \addtogroup RFAL-HAL
+ * \brief RFAL Hardware Abstraction Layer
+ * @{
+ * 
+ * \addtogroup RF
+ * \brief RFAL RF Abstraction Layer
+ * @{
+ *  
+ */
+
 #ifndef RFAL_RF_H
 #define RFAL_RF_H
 
-/* INCLUDES */
-#include "rfal_error.h"		//GESTIORE ERRORI
-#include "Arduino.h"
-#include "SPI.h"
+/*
+******************************************************************************
+* INCLUDES
+******************************************************************************
+*/
+#include "st_errno.h"
+#include "rfal_features.h"
 
-/* DEFINE */
+/*
+******************************************************************************
+* GLOBAL DEFINES
+******************************************************************************
+*/
 #define RFAL_VERSION                               (uint32_t)0x02000aU                          /*!< RFAL Current Version: v2.0.10                     */
 
 #define RFAL_FWT_NONE                              0xFFFFFFFFU                                  /*!< Disabled FWT: Wait forever for a response         */
@@ -43,9 +126,15 @@
 #define RFAL_NFCID2_LEN                            8U                                           /*!< NFCID2 length                                     */
 #define RFAL_NFCID1_TRIPLE_LEN                     10U                                          /*!< NFCID1 length                                     */
 #define RFAL_NFCID1_DOUBLE_LEN                     7U                                           /*!< NFCID1 length                                     */
-#define RFAL_NFCID1_SIMPLE_LEN                     4U       
+#define RFAL_NFCID1_SIMPLE_LEN                     4U                                           /*!< NFCID1 length                                     */
 
-/* MACROS */
+
+/*
+******************************************************************************
+* GLOBAL MACROS
+******************************************************************************
+*/
+
 /*! Returns the maximum supported bit rate for RW mode. Caller must check if mode is supported before, as even if mode is not supported will return the min  */
 #define rfalGetMaxBrRW()                     ( ((RFAL_SUPPORT_BR_RW_6780)  ? RFAL_BR_6780 : ((RFAL_SUPPORT_BR_RW_3390)  ? RFAL_BR_3390 : ((RFAL_SUPPORT_BR_RW_1695)  ? RFAL_BR_1695 : ((RFAL_SUPPORT_BR_RW_848)  ? RFAL_BR_848 : ((RFAL_SUPPORT_BR_RW_424)  ? RFAL_BR_424 : ((RFAL_SUPPORT_BR_RW_212)  ? RFAL_BR_212 : RFAL_BR_106 ) ) ) ) ) ) )
 
@@ -93,17 +182,6 @@
 #define rfalConvBytesToBits( n )             (uint32_t)( (uint32_t)(n) * (RFAL_BITS_IN_BYTE) )                           /*!< Converts the given n from bytes to bits    */
 
 
-/* UTILS MACRO */
-#define SIZEOF_ARRAY(a)     (sizeof(a) / sizeof((a)[0]))  /*!< Compute the size of an array           */
-#define MAX(a, b)           (((a) > (b)) ? (a) : (b))     /*!< Return the maximum of the 2 values     */
-#define MIN(a, b)           (((a) < (b)) ? (a) : (b))     /*!< Return the minimum of the 2 values     */
-#define BITMASK_1           (0x01)                        /*!< Bit mask for lsb bit                   */
-#define BITMASK_2           (0x03)                        /*!< Bit mask for two lsb bits              */
-#define BITMASK_3           (0x07)                        /*!< Bit mask for three lsb bits            */
-#define BITMASK_4           (0x0F)                        /*!< Bit mask for four lsb bits             */
-#define U16TOU8(a)          ((a) & 0x00FF)                /*!< Cast 16-bit unsigned to 8-bit unsigned */
-#define GETU16(a)           (((uint16_t)(a)[0] << 8) | (uint16_t)(a)[1])/*!< Cast two Big Endian 8-bits byte array to 16-bits unsigned */
-#define GETU32(a)           (((uint32_t)(a)[0] << 24) | ((uint32_t)(a)[1] << 16) | ((uint32_t)(a)[2] << 8) | ((uint32_t)(a)[3])) /*!< Cast four Big Endian 8-bit byte array to 32-bit unsigned */
 
 /*! Computes a Transceive context \a ctx with default flags and the lengths 
  * in bytes with the given arguments
@@ -145,12 +223,17 @@
     (ctx).fwt       = (uint32_t)(t);
 
 
-#define rfalLogE(...)             platformLog(__VA_ARGS__)        /*!< Macro for the error log method                  */
-#define rfalLogW(...)             platformLog(__VA_ARGS__)        /*!< Macro for the warning log method                */
-#define rfalLogI(...)             platformLog(__VA_ARGS__)        /*!< Macro for the info log method                   */
-#define rfalLogD(...)             platformLog(__VA_ARGS__)        /*!< Macro for the debug log method                  */
+#define rfalLogE(...)                     /*!< Macro for the error log method                  */
+#define rfalLogW(...)                     /*!< Macro for the warning log method                */
+#define rfalLogI(...)                     /*!< Macro for the info log method                   */
+#define rfalLogD(...)                     /*!< Macro for the debug log method                  */
 
-/* ENUM */
+
+/*
+******************************************************************************
+* GLOBAL ENUMS
+******************************************************************************
+*/
 
 /* RFAL Guard Time (GT) default values                 */
 #define    RFAL_GT_NFCA                      rfalConvMsTo1fc(5U)     /*!< GTA  Digital 2.0  6.10.4.1 & B.2                                                                 */
@@ -182,7 +265,12 @@
 #define    RFAL_FDT_POLL_PICOPASS_POLLER     1790U    /*!< FDT Max                                                                                                         */
 #define    RFAL_FDT_POLL_AP2P_POLLER         0U       /*!< FDT AP2P No actual FDTPoll exists as fields switch and collision avoidance                                      */
 
-/* TYPES */
+
+/*
+******************************************************************************
+* GLOBAL TYPES
+******************************************************************************
+*/
 
 /*! RFAL modes    */
 typedef enum {
@@ -514,116 +602,942 @@ typedef struct
     }cap;                            /*!< Capacitive Configuration                                  */
 } rfalWakeUpConfig;
 
-/*! RFAL features support (rfal_features.h)*/
-typedef struct{
-    boolean PollNFCA;                  /* RFAL Poll NFCA mode support switch    */
-    boolean PollNFCB;                  /* RFAL Poll NFCB mode support switch    */
-    boolean PollNFCF;                  /* RFAL Poll NFCF mode support switch    */
-    boolean PollNFCV;                  /* RFAL Poll NFCV mode support switch    */
-    boolean PollActiveP2P;             /* RFAL Poll AP2P mode support switch    */
 
-    boolean ListenNFCA;                /* RFAL Listen NFCA mode support switch  */
-    boolean ListenNFCB;                /* RFAL Listen NFCB mode support switch  */
-    boolean ListenNFCF;                /* RFAL Listen NFCF mode support switch  */
-    boolean ListenActiveP2P;           /* RFAL Listen AP2P mode support switch  */
-    boolean ListenMode;               /* RFAL support for Listen Mode */
+/*******************************************************************************/
 
-    boolean BR_RW_106;                  /* RFAL RW  106 Bit Rate support switch   */
-    boolean BR_RW_212;                  /* RFAL RW  212 Bit Rate support switch   */
-    boolean BR_RW_424;                 /* RFAL RW  424 Bit Rate support switch   */
-    boolean BR_RW_848;                  /* RFAL RW  848 Bit Rate support switch   */
-    boolean BR_RW_1695;               /* RFAL RW 1695 Bit Rate support switch   */
-    boolean BR_RW_3390;                 /* RFAL RW 3390 Bit Rate support switch   */
-    boolean BR_RW_6780;                 /* RFAL RW 6780 Bit Rate support switch   */
-    boolean BR_RW_13560;                /* RFAL RW 6780 Bit Rate support switch   */
+class RfalRfClass {
+	public:
 
-    boolean BR_AP2P_106;                  /* RFAL AP2P  106 Bit Rate support switch */
-    boolean BR_AP2P_212;                  /* RFAL AP2P  212 Bit Rate support switch */
-    boolean BR_AP2P_424;                  /* RFAL AP2P  424 Bit Rate support switch */
-    boolean BR_AP2P_848;                  /* RFAL AP2P  848 Bit Rate support switch */
-    boolean BR_AP2P_1695;                 /*!< RFAL AP2P 1695 Bit Rate support switch */
-    boolean BR_AP2P_3390;                 /*!< RFAL AP2P 3390 Bit Rate support switch */
-    boolean BR_AP2P_6780;
-
-    boolean BR_CE_A_106;                  /* RFAL CE A 106 Bit Rate support switch  */
-    boolean BR_CE_A_212;                  /* RFAL CE A 212 Bit Rate support switch  */
-    boolean BR_CE_A_424;                  /* RFAL CE A 424 Bit Rate support switch  */
-    boolean BR_CE_A_848;                  /* RFAL CE A 848 Bit Rate support switch  */
-
-     boolean BR_CE_B_106;                  /* RFAL CE B 106 Bit Rate support switch  */
-    boolean BR_CE_B_212;                  /* RFAL CE B 212 Bit Rate support switch  */
-    boolean BR_CE_B_424;                  /* RFAL CE B 424 Bit Rate support switch  */
-    boolean BR_CE_B_848;                  /* RFAL CE B 848 Bit Rate support switch  */
-
-    boolean BR_CE_F_212;                  /* RFAL CE F 212 Bit Rate support switch  */
-    boolean BR_CE_F_424;                  /* RFAL CE F 424 Bit Rate support switch  */
-
-    boolean WAKEUP_MODE;                 /*  RFAL support for the Wake-Up mode                          */
-    boolean NFCA;                         /*  RFAL support for NFC-A (ISO14443A)                         */
-    boolean NFCB;                        /*  RFAL support for NFC-B (ISO14443B)                         */
-    boolean NFCF;                         /*  RFAL support for NFC-F (FeliCa)                            */
-    boolean NFCV;                         /*  RFAL support for NFC-V (ISO15693)                          */
-    boolean T1T;                         /*  RFAL support for T1T (Topaz)                               */
-    boolean T2T;                          /*  RFAL support for T2T                                       */
-    boolean T4T;                          /*  RFAL support for T4T                                       */
-    boolean ST25TB;                       /*  RFAL support for ST25TB                                    */
-    boolean ST25xV;                      /*  RFAL support for ST25TV/ST25DV                             */
-    boolean DYNAMIC_ANALOG_CONFIG;        /*  Analog Configs to be dynamically updated (RAM)             */
-    boolean DYNAMIC_POWER;                /*  RFAL dynamic power support                                 */
-    boolean ISO_DEP;                      /*  RFAL support for ISO-DEP (ISO14443-4)                      */
-    boolean ISO_DEP_POLL;                 /*  RFAL support for Poller mode (PCD) ISO-DEP (ISO14443-4)    */
-    boolean ISO_DEP_LISTEN;               /*  RFAL support for Listen mode (PICC) ISO-DEP (ISO14443-4)   */
-    boolean NFC_DEP;                      /*  RFAL support for NFC-DEP (NFCIP1/P2P)                      */
+	/*
+	******************************************************************************
+	* GLOBAL FUNCTION PROTOTYPES
+	******************************************************************************
+	*/
 
 
-    boolean ISO_DEP_IBLOCK_MAX_LEN;       /*  ISO-DEP I-Block max length. Please use values as defined by rfalIsoDepFSx */
-    boolean ISO_DEP_APDU_MAX_LEN;         /*  ISO-DEP APDU max length. Please use multiples of I-Block max length       */
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Initialize
+	 *  
+	 * Initializes RFAL layer and the ST25R391x
+	 * Ensures that ST25R391x is properly connected and returns error if any problem 
+	 * is detected
+	 *
+	 * \warning rfalAnalogConfigInitialize() should be called at the beginning of this function 
+	 *           so that the Analog config table has been previously initialized.
+	 *           
+	 * \return ERR_HW_MISMATCH  : Expected HW do not match or communication error
+	 * \return ERR_NONE         : No error
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalInitialize( void );
 
-}rfalFeatures;
 
-/* ISO DEP */
+	/*!
+	 *****************************************************************************
+	 * \brief  RFAL Calibrate 
+	 *  
+	 * Performs necessary calibration of RF chip in case it is indicated by current
+	 * register settings. E.g. antenna calibration and regulator calibration
+	 *
+	 * \return ERR_WRONG_STATE  : RFAL not initialized
+	 * \return ERR_NONE         : No error
+	 * 
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalCalibrate( void );
 
-#define RFAL_ISODEP_PROLOGUE_SIZE               (3U)     /*!< Length of Prologue Field for I-Block Format                       */
-#define RFAL_FEATURE_ISO_DEP_IBLOCK_MAX_LEN    256U       /*!< ISO-DEP I-Block max length. Please use values as defined by rfalIsoDepFSx */
-/*! Structure of I-Block Buffer format from caller */
-typedef struct
-{
-    uint8_t  prologue[RFAL_ISODEP_PROLOGUE_SIZE];      /*!< Prologue/SoD buffer                      */
-    uint8_t  inf[RFAL_FEATURE_ISO_DEP_IBLOCK_MAX_LEN]; /*!< INF/Payload buffer                       */
-} rfalIsoDepBufFormat;
 
-/*! Structure of parameters used on ISO DEP Transceive */
-typedef struct
-{
-    rfalIsoDepBufFormat  *txBuf;                       /*!< Transmit Buffer struct reference         */
-    uint16_t             txBufLen;                     /*!< Transmit Buffer INF field length in Bytes*/
-    bool                 isTxChaining;                 /*!< Transmit data is not complete            */
-    rfalIsoDepBufFormat  *rxBuf;                       /*!< Receive Buffer struct reference in Bytes */
-    uint16_t             *rxLen;                       /*!< Received INF data length in Bytes        */
-    bool                 *isRxChaining;                /*!< Received data is not complete            */
-    uint32_t             FWT;                          /*!< FWT to be used (ignored in Listen Mode)  */
-    uint32_t             dFWT;                         /*!< Delta FWT to be used                     */
-    uint16_t             ourFSx;                       /*!< Our device Frame Size (FSD or FSC)       */
-    uint16_t             FSx;                          /*!< Other device Frame Size (FSD or FSC)     */
-    uint8_t              DID;                          /*!< Device ID (RFAL_ISODEP_NO_DID if no DID) */
-} rfalIsoDepTxRxParam;
+	/*!
+	 *****************************************************************************
+	 * \brief  RFAL Adjust Regulators 
+	 *  
+	 * Adjusts ST25R391x regulators 
+	 * 
+	 * \param[out]  result : the result of the calibrate antenna in mV
+	 *                       NULL if result not requested
+	 *
+	 * \return ERR_WRONG_STATE  : RFAL not initialized
+	 * \return ERR_NONE         : No error
+	 * 
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalAdjustRegulators( uint16_t* result );
 
-class rfal_rf{
-  public:
-    virtual ReturnCode rfalInitialize(); 
-    virtual void rfalAnalogConfigInitialize();
-    virtual void CheckInterrupts();  
-    virtual void rfalWorker();
-    virtual ReturnCode rfalStartTransceive( const rfalTransceiveContext *ctx );
-    
-    /* RFAL_ISO_DEP */
-    virtual ReturnCode rfalIsoDepDeselect();
-    virtual ReturnCode rfalTransceiveBlockingRx( void );
-    virtual ReturnCode rfalTransceiveBlockingTx( uint8_t* txBuf, uint16_t txBufLen, uint8_t* rxBuf, uint16_t rxBufLen, uint16_t* actLen, uint32_t flags, uint32_t fwt );    
-    virtual ReturnCode rfalGetTransceiveStatus();
-    virtual ReturnCode rfalIsoDepStartTransceive( rfalIsoDepTxRxParam param );
-    virtual ReturnCode rfalIsoDepGetTransceiveStatus( void );
-    //virtual ReturnCode isoDepDataExchangePCD( uint16_t *outActRxLen, bool *outIsChaining );
+
+	/*!
+	 *****************************************************************************
+	 * \brief RFAL Set System Callback
+	 *
+	 * Sets a callback for the driver to call when an event has occurred that 
+	 * may require the system to be notified
+	 * 
+	 * \param[in]  pFunc : method pointer for the upper layer callback 
+	 * 
+	 *****************************************************************************
+	 */
+	virtual void rfalSetUpperLayerCallback( rfalUpperLayerCallback pFunc );
+
+
+	/*!
+	 *****************************************************************************
+	 * \brief RFAL Set Pre Tx Callback
+	 *
+	 * Sets a callback for the driver to call before a Transceive 
+	 * 
+	 * \param[in]  pFunc : method pointer for the Pre Tx callback 
+	 * 
+	 *****************************************************************************
+	 */
+	virtual void rfalSetPreTxRxCallback( rfalPreTxRxCallback pFunc );
+
+	/*!
+	 *****************************************************************************
+	 * \brief RFAL Set Post Tx Callback
+	 *
+	 * Sets a callback for the driver to call after a Transceive 
+	 * 
+	 * \param[in]  pFunc : method pointer for the Post Tx callback 
+	 * 
+	 *****************************************************************************
+	 */
+	virtual void rfalSetPostTxRxCallback( rfalPostTxRxCallback pFunc );
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Deinitialize
+	 *  
+	 * Deinitializes RFAL layer and the ST25R391x
+	 *
+	 * \return ERR_NONE : No error
+	 * 
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalDeinitialize( void );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Set Mode
+	 *  
+	 * Sets the mode that RFAL will operate on the following communications.
+	 * Proper initializations will be performed on the ST25R391x
+	 * 
+	 * \warning bit rate value RFAL_BR_KEEP is not allowed, only in rfalSetBitRate()
+	 * 
+	 * \warning the mode will be applied immediately on the RFchip regardless of 
+	 *          any ongoing operations like Transceive, ListenMode
+	 * 
+	 * \param[in]  mode : mode for the RFAL/RFchip to perform
+	 * \param[in]  txBR : transmit bit rate
+	 * \param[in]  rxBR : receive bit rate 
+	 * 
+	 * \see rfalIsGTDone
+	 * \see rfalMode
+	 *
+	 * \return ERR_WRONG_STATE  : RFAL not initialized
+	 * \return ERR_PARAM        : Invalid parameter
+	 * \return ERR_NONE         : No error
+	 * 
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalSetMode( rfalMode mode, rfalBitRate txBR, rfalBitRate rxBR );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Get Mode
+	 *  
+	 * Gets the mode that RFAL is set to operate
+	 * 
+	 * \see rfalMode
+	 *
+	 * \return rfalMode : The current RFAL mode
+	 *****************************************************************************
+	 */
+	virtual rfalMode rfalGetMode( void );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Set Bit Rate
+	 *  
+	 * Sets the Tx and Rx bit rates with the given values 
+	 * The bit rate change is applied on the RF chip remaining in the same  
+	 * mode previous defined with rfalSetMode()
+	 * 
+	 * If no mode is defined bit rates will not be applied and an error 
+	 * is returned
+	 * 
+	 * \param[in]  txBR : transmit bit rate
+	 * \param[in]  rxBR : receive bit rate 
+	 * 
+	 * \see rfalSetMode
+	 * \see rfalMode
+	 * \see rfalBitRate
+	 *
+	 * \return ERR_WRONG_STATE     : RFAL not initialized
+	 * \return ERR_PARAM           : Invalid parameter
+	 * \return ERR_NOT_IMPLEMENTED : Mode not implemented
+	 * \return ERR_NONE            : No error
+	 * 
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalSetBitRate( rfalBitRate txBR, rfalBitRate rxBR );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Get Bit Rate
+	 *  
+	 * Gets the Tx and Rx current bit rates 
+	 * 
+	 * If RFAL is not initialized or mode not set the bit rates return will 
+	 * be invalid RFAL_BR_KEEP
+	 * 
+	 * \param[out]  txBR : RFAL's current Tx Bit Rate
+	 * \param[out]  rxBR : RFAL's current Rx Bit Rate
+	 * 
+	 * \see rfalSetBitRate
+	 * \see rfalBitRate
+	 *
+	 * \return ERR_WRONG_STATE  : RFAL not initialized or mode not set
+	 * \return ERR_NONE         : No error
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalGetBitRate( rfalBitRate *txBR, rfalBitRate *rxBR );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief Set Error Handling Mode
+	 *  
+	 *  Sets the error handling mode to be used by the RFAL
+	 *  
+	 * \param[in]  eHandling : the error handling mode
+	 * 
+	 *****************************************************************************
+	 */
+	virtual void rfalSetErrorHandling( rfalEHandling eHandling );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief Get Error Handling Mode
+	 *  
+	 *  Gets the error handling mode currently used by the RFAL 
+	 *  
+	 * \return rfalEHandling : Current error handling mode
+	 *****************************************************************************
+	 */
+	virtual rfalEHandling rfalGetErrorHandling( void );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief Set Observation Mode
+	 *  
+	 * Sets ST25R391x observation modes for RF debug purposes
+	 *
+	 * \param[in]  txMode : the observation mode to be used during transmission
+	 * \param[in]  rxMode : the observation mode to be used during reception
+	 * 
+	 * \warning The Observation Mode is an advanced feature and should be set 
+	 *          according to the documentation of the part number in use.
+	 *          Please refer to the corresponding Datasheet or Application Note(s)
+	 *****************************************************************************
+	 */
+	virtual void rfalSetObsvMode( uint8_t txMode, uint8_t rxMode );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief Get Observation Mode
+	 *  
+	 * Gets ST25R391x the current configured observation modes
+	 *
+	 * \param[in]  txMode : the current observation mode configured for transmission
+	 * \param[in]  rxMode : the current observation mode configured for reception
+	 * 
+	 *****************************************************************************
+	 */
+	virtual void rfalGetObsvMode( uint8_t* txMode, uint8_t* rxMode );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief Disable Observation Mode
+	 *  
+	 * Disables the ST25R391x observation mode
+	 *****************************************************************************
+	 */
+	virtual void rfalDisableObsvMode( void );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Set FDT Poll
+	 *  
+	 * Sets the Frame Delay Time (FDT) to be used on the following
+	 * communications.
+	 * 
+	 * FDT Poll is the minimum time following a Poll Frame during 
+	 * which no subsequent Poll Frame can be sent (without a response from 
+	 * the Listener in between)
+	 * FDTx,PP,MIN - Digital 1.1  6.10.2  &  7.9.2  &  8.7.2
+	 * 
+	 * \param[in]  FDTPoll : Frame Delay Time in 1/fc cycles
+	 *
+	 *****************************************************************************
+	 */
+	virtual void rfalSetFDTPoll( uint32_t FDTPoll );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Set FDT Poll
+	 *  
+	 * Gets the current Frame Delay Time (FDT) 
+	 * 
+	 * FDT Poll is the minimum time following a Poll Frame during 
+	 * which no subsequent Poll Frame can be sent (without a response from 
+	 * the Listener in between)
+	 * FDTx,PP,MIN - Digital 1.1  6.10.2  &  7.9.2  &  8.7.2
+	 *  
+	 * \return FDT : current FDT value in 1/fc cycles
+	 *
+	 *****************************************************************************
+	 */
+	virtual uint32_t rfalGetFDTPoll( void );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Set FDT Listen
+	 *  
+	 * Sets the Frame Delay Time (FDT) Listen minimum to be used on the 
+	 * following communications.
+	 * 
+	 * FDT Listen is the minimum time between a Poll Frame and a Listen Frame
+	 * FDTx,LISTEN,MIN - Digital 1.1  6.10.1  &  7.9.1  &  8.7.1
+	 *  
+	 * \param[in]  FDTListen : Frame Delay Time in 1/fc cycles
+	 *
+	 *****************************************************************************
+	 */
+	virtual void rfalSetFDTListen( uint32_t FDTListen );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Set FDT Listen
+	 *  
+	 * Gets the Frame Delay Time (FDT) Listen minimum  
+	 * 
+	 * FDT Listen is the minimum time between a Poll Frame and a Listen Frame
+	 * FDTx,LISTEN,MIN - Digital 1.1  6.10.1  &  7.9.1  &  8.7.1
+	 *  
+	 * \return FDT : current FDT value in 1/fc cycles
+	 *
+	 *****************************************************************************
+	 */
+	virtual uint32_t rfalGetFDTListen( void );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Get GT
+	 *  
+	 * Gets the current Guard Time (GT)
+	 *  
+	 * GT is the minimum time when a device in Listen Mode is exposed to an 
+	 * unmodulated carrier
+	 *  
+	 * \return GT :  Guard Time in 1/fc cycles
+	 *
+	 *****************************************************************************
+	 */
+	virtual uint32_t rfalGetGT( void );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Set GT
+	 *  
+	 * Sets the Guard Time (GT) to be used on the following communications.
+	 * 
+	 * GT is the minimum time when a device in Listen Mode is exposed to an 
+	 * unmodulated carrier
+	 *  
+	 * \param[in]  GT : Guard Time in 1/fc cycles
+	 *                  RFAL_GT_NONE if no GT should be applied
+	 *
+	 *****************************************************************************
+	 */
+	virtual void rfalSetGT( uint32_t GT );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Is GT expired 
+	 *  
+	 * Checks whether the GT timer has expired
+	 *    
+	 * \return true  : GT has expired or not running
+	 * \return false : GT is still running
+	 *
+	 *****************************************************************************
+	 */
+	virtual bool rfalIsGTExpired( void );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Turn Field On and Start GT
+	 *  
+	 * Turns the Field On, performing Initial Collision Avoidance
+	 * 
+	 * After Field On, if GT was set before, it starts the GT timer to be 
+	 * used on the following communications.
+	 *  
+	 * \return ERR_RF_COLLISION : External field detected
+	 * \return ERR_NONE         : Field turned On
+	 *
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalFieldOnAndStartGT( void );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Turn Field Off
+	 *  
+	 * Turns the Field Off  
+	 *   
+	 * \return ERR_NONE : Field turned Off
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalFieldOff( void );
+
+
+
+	/*****************************************************************************
+	 *  Transceive                                                               *  
+	 *****************************************************************************/
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  RFAL Set transceive context
+	 *  
+	 * Set the context that will be used for the following Transceive
+	 * Output and input buffers have to be passed and all other details prior to 
+	 * the Transceive itself has been started
+	 * 
+	 * This method only sets the context, once set rfalWorker has
+	 * to be executed until is done
+	 * 
+	 * \param[in]  ctx : the context for the following Transceive
+	 * 
+	 * \see  rfalWorker
+	 * \see  rfalGetTransceiveStatus
+	 *
+	 * \return ERR_NONE        : Done with no error
+	 * \return ERR_WRONG_STATE : Not initialized properly 
+	 * \return ERR_PARAM       : Invalid parameter or configuration
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalStartTransceive( const rfalTransceiveContext *ctx );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  Get Transceive State
+	 *  
+	 * Gets current Transceive internal State
+	 *
+	 * \return rfalTransceiveState : the current Transceive internal State
+	 *****************************************************************************
+	 */
+	virtual rfalTransceiveState rfalGetTransceiveState( void );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  Get Transceive Status
+	 *  
+	 * Gets current Transceive status
+	 *
+	 * \return  ERR_NONE         : Transceive done with no error
+	 * \return  ERR_BUSY         : Transceive ongoing
+	 * \return  ERR_XXXX         : Error occurred
+	 * \return  ERR_TIMEOUT      : No response
+	 * \return  ERR_FRAMING      : Framing error detected
+	 * \return  ERR_PAR          : Parity error detected
+	 * \return  ERR_CRC          : CRC error detected
+	 * \return  ERR_LINK_LOSS    : Link Loss - External Field is Off
+	 * \return  ERR_RF_COLLISION : Collision detected
+	 * \return  ERR_IO           : Internal error
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalGetTransceiveStatus( void );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  Is Transceive in Tx
+	 *  
+	 * Checks if Transceive is in Transmission state
+	 *
+	 * \return true   Transmission ongoing
+	 * \return false  Not in transmission state
+	 *****************************************************************************
+	 */
+	virtual bool rfalIsTransceiveInTx( void );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  Is Transceive in Rx
+	 *  
+	 * Checks if Transceive is in Reception state 
+	 *
+	 * \return true   Transmission done/reception ongoing
+	 * \return false  Not in reception state
+	 *****************************************************************************
+	 */
+	virtual bool rfalIsTransceiveInRx( void );
+
+
+	/*! 
+	 *****************************************************************************
+	 * \brief  Get Transceive RSSI
+	 *  
+	 * Gets the RSSI value of the last executed Transceive in mV
+	 *
+	 * \param[out]  rssi : RSSI value
+	 *
+	 * \return  ERR_NOTSUPP : Feature not supported
+	 * \return  ERR_PARAM   : Invalid parameter
+	 * \return  ERR_NONE    : No error
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalGetTransceiveRSSI( uint16_t *rssi );
+
+
+	/*! 
+	 *****************************************************************************
+	 *  \brief RFAL Worker
+	 *  
+	 *  This runs RFAL layer, which drives the actual Transceive procedure
+	 *  It MUST be executed frequently in order to execute the RFAL internal
+	 *  states and perform the requested operations
+	 *
+	 *****************************************************************************
+	 */
+	virtual void rfalWorker( void );
+
+
+	/*****************************************************************************
+	 *  ISO1443A                                                                 *  
+	 *****************************************************************************/
+
+	/*! 
+	 *****************************************************************************
+	 *  \brief Transceives an ISO14443A ShortFrame  
+	 *  
+	 *  Sends REQA to detect if there is any PICC in the field 
+	 *
+	 * \param[in]  txCmd:     Command to be sent:
+	 *                           0x52 WUPA / ALL_REQ
+	 *                           0x26 REQA / SENS_REQ
+	 *                           
+	 * \param[in]  txCmd    : type of short frame to be sent REQA or WUPA                          
+	 * \param[out] rxBuf    : buffer to place the response
+	 * \param[in]  rxBufLen : length of rxBuf
+	 * \param[out] rxRcvdLen: received length
+	 * \param[in]  fwt      : Frame Waiting Time in 1/fc
+	 * 
+	 * \warning If fwt is set to RFAL_FWT_NONE it will make endlessly for 
+	 *         a response, which on a blocking method may not be the 
+	 *         desired usage 
+	 * 
+	 * \return ERR_NONE if there is response
+	 * \return ERR_TIMEOUT if there is no response
+	 * \return ERR_COLLISION collision has occurred
+	 *  
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalISO14443ATransceiveShortFrame( rfal14443AShortFrameCmd txCmd, uint8_t* rxBuf, uint8_t rxBufLen, uint16_t* rxRcvdLen, uint32_t fwt );
+
+
+	/*!
+	 *****************************************************************************
+	 * \brief Sends an ISO14443A Anticollision Frame 
+	 * 
+	 * This is use to perform ISO14443A anti-collision. 
+	 * \note Anticollision is sent without CRC
+	 * 
+	 * 
+	 * \param[in]   buf        : reference to ANTICOLLISION command (with known UID if any) to be sent (also out param)
+	 *                           reception will be place on this buf after bytesToSend 
+	 * \param[in]   bytesToSend: reference number of full bytes to be sent (including CMD byte and SEL_PAR)
+	 *                           if a collision occurs will contain the number of clear bytes  
+	 * \param[in]   bitsToSend : reference to number of bits (0-7) to be sent; and received (also out param)
+	 *                           if a collision occurs will indicate the number of clear bits (also out param)
+	 * \param[out]  rxLength   : reference to the return the received length
+	 * \param[in]   fwt        : Frame Waiting Time in 1/fc
+	 * 
+	 * \return ERR_NONE if there is no error
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalISO14443ATransceiveAnticollisionFrame( uint8_t *buf, uint8_t *bytesToSend, uint8_t *bitsToSend, uint16_t *rxLength, uint32_t fwt );
+
+
+	/*****************************************************************************
+	 *  FeliCa                                                                   *  
+	 *****************************************************************************/
+
+	/*!
+	 *****************************************************************************
+	 * \brief FeliCa Poll 
+	 * 
+	 * Sends a Poll Request and collects all Poll Responses according to the 
+	 * given slots  
+	 * 
+	 * 
+	 * \param[in]   slots             : number of slots for the Poll Request
+	 * \param[in]   sysCode           : system code (SC) for the Poll Request  
+	 * \param[in]   reqCode           : request code (RC) for the Poll Request
+	 * \param[out]  pollResList       : list of all responses
+	 * \param[in]   pollResListSize   : number of responses that can be placed in pollResList 
+	 * \param[out]  devicesDetected   : number of cards found
+	 * \param[out]  collisionsDetected: number of collisions detected
+	 * 
+	 * \return ERR_NONE if there is no error
+	 * \return ERR_TIMEOUT if there is no response
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalFeliCaPoll( rfalFeliCaPollSlots slots, uint16_t sysCode, uint8_t reqCode, rfalFeliCaPollRes* pollResList, uint8_t pollResListSize, uint8_t *devicesDetected, uint8_t *collisionsDetected );
+
+
+	/*****************************************************************************
+	 *  ISO15693                                                                 *  
+	 *****************************************************************************/
+
+	/*!
+	 *****************************************************************************
+	 * \brief Sends an ISO15693 Anticollision Frame 
+	 * 
+	 * This send the Anticollision|Inventory frame (INVENTORY_REQ)
+	 *
+	 * \warning rxBuf must be able to contain the payload and CRC
+	 * 
+	 * \param[in]  txBuf        : Buffer where outgoing message is located
+	 * \param[in]  txBufLen     : Length of the outgoing message in bytes
+	 * \param[out] rxBuf        : Buffer where incoming message will be placed
+	 * \param[in]  rxBufLen     : Maximum length of the incoming message in bytes
+	 * \param[out] actLen       : Actual received length in bits
+	 * 
+	 * \return  ERR_NONE        : Transceive done with no error
+	 * \return  ERR_WRONG_STATE : RFAL not initialized or mode not set
+	 * \return  ERR_IO          : Internal error
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalISO15693TransceiveAnticollisionFrame( uint8_t *txBuf, uint8_t txBufLen, uint8_t *rxBuf, uint8_t rxBufLen, uint16_t *actLen );
+
+
+	/*!
+	 *****************************************************************************
+	 * \brief Sends an ISO15693 Anticollision EOF
+	 * 
+	 * This sends the Anticollision|Inventory EOF used as a slot marker
+	 * 
+	 * \warning rxBuf must be able to contain the payload and CRC
+	 * 
+	 * \param[out] rxBuf        : Buffer where incoming message will be placed
+	 * \param[in] rxBufLen      : Maximum length of the incoming message in bytes
+	 * \param[out] actLen       : Actual received length in bits
+	 * 
+	 * \return  ERR_NONE        : Transceive done with no error
+	 * \return  ERR_WRONG_STATE : RFAL not initialized or mode not set
+	 * \return  ERR_IO          : Internal error
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalISO15693TransceiveEOFAnticollision( uint8_t *rxBuf, uint8_t rxBufLen, uint16_t *actLen );
+
+
+	/*!
+	 *****************************************************************************
+	 * \brief Sends an ISO15693 EOF
+	 *
+	 * This is method sends an ISO15693 (EoF) used for a Write operation
+	 * 
+	 * \warning rxBuf must be able to contain the payload and CRC
+	 * 
+	 * \param[out] rxBuf        : Buffer where incoming message will be placed
+	 * \param[in] rxBufLen      : Maximum length of the incoming message in bytes
+	 * \param[out] actLen       : Actual received length in bytes
+	 * 
+	 * \return  ERR_NONE        : Transceive done with no error
+	 * \return  ERR_IO          : Internal error
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalISO15693TransceiveEOF( uint8_t *rxBuf, uint8_t rxBufLen, uint16_t *actLen );
+
+
+	/*!
+	 *****************************************************************************
+	 * \brief Transceive Blocking Tx 
+	 *
+	 * This is method triggers a Transceive and executes it blocking until the 
+	 * Tx has been completed
+	 * 
+	 * \param[in]  txBuf    : Buffer where outgoing message is located
+	 * \param[in]  txBufLen : Length of the outgoing message in bytes
+	 * \param[out] rxBuf    : Buffer where incoming message will be placed
+	 * \param[in]  rxBufLen : Maximum length of the incoming message in bytes
+	 * \param[out] actLen   : Actual received length in bits
+	 * \param[in]  flags    : TransceiveFlags indication special handling
+	 * \param[in]  fwt      : Frame Waiting Time in 1/fc
+	 * 
+	 * \return  ERR_NONE         : Transceive done with no error
+	 * \return  ERR_BUSY         : Transceive ongoing
+	 * \return  ERR_XXXX         : Error occurred
+	 * \return  ERR_LINK_LOSS    : Link Loss - External Field is Off
+	 * \return  ERR_RF_COLLISION : Collision detected
+	 * \return  ERR_IO           : Internal error
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalTransceiveBlockingTx( uint8_t* txBuf, uint16_t txBufLen, uint8_t* rxBuf, uint16_t rxBufLen, uint16_t* actLen, uint32_t flags, uint32_t fwt );
+
+	/*!
+	 *****************************************************************************
+	 * \brief Transceive Blocking Rx 
+	 *
+	 * This is method executes the reception of an ongoing Transceive triggered 
+	 * before by rfalTransceiveBlockingTx()
+	 * 
+	 * \return  ERR_NONE         : Transceive done with no error
+	 * \return  ERR_BUSY         : Transceive ongoing
+	 * \return  ERR_XXXX         : Error occurred
+	 * \return  ERR_TIMEOUT      : No response
+	 * \return  ERR_FRAMING      : Framing error detected
+	 * \return  ERR_PAR          : Parity error detected
+	 * \return  ERR_CRC          : CRC error detected
+	 * \return  ERR_LINK_LOSS    : Link Loss - External Field is Off
+	 * \return  ERR_RF_COLLISION : Collision detected
+	 * \return  ERR_IO           : Internal error
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalTransceiveBlockingRx( void );
+
+	/*!
+	 *****************************************************************************
+	 * \brief Transceive Blocking 
+	 *
+	 * This is method triggers a Transceive and executes it blocking until it 
+	 * has been completed
+	 * 
+	 * \param[in]  txBuf    : Buffer where outgoing message is located
+	 * \param[in]  txBufLen : Length of the outgoing message in bytes
+	 * \param[out] rxBuf    : Buffer where incoming message will be placed
+	 * \param[in]  rxBufLen : Maximum length of the incoming message in bytes
+	 * \param[out] actLen   : Actual received length in bytes
+	 * \param[in]  flags    : TransceiveFlags indication special handling
+	 * \param[in]  fwt      : Frame Waiting Time in 1/fc
+	 * 
+	 * \return  ERR_NONE         : Transceive done with no error
+	 * \return  ERR_BUSY         : Transceive ongoing
+	 * \return  ERR_XXXX         : Error occurred
+	 * \return  ERR_TIMEOUT      : No response
+	 * \return  ERR_FRAMING      : Framing error detected
+	 * \return  ERR_PAR          : Parity error detected
+	 * \return  ERR_CRC          : CRC error detected
+	 * \return  ERR_LINK_LOSS    : Link Loss - External Field is Off
+	 * \return  ERR_RF_COLLISION : Collision detected
+	 * \return  ERR_IO           : Internal error
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalTransceiveBlockingTxRx( uint8_t* txBuf, uint16_t txBufLen, uint8_t* rxBuf, uint16_t rxBufLen, uint16_t* actLen, uint32_t flags, uint32_t fwt );
+
+
+
+	/*****************************************************************************
+	 *  Listen Mode                                                              *  
+	 *****************************************************************************/
+
+	/*!
+	 *****************************************************************************
+	 * \brief Is external Field On
+	 * 
+	 * Checks if external field (other peer/device) is on/detected
+	 * 
+	 * \return true  External field is On
+	 * \return false No external field is detected
+	 * 
+	 *****************************************************************************
+	 */
+	virtual bool rfalIsExtFieldOn( void );
+
+
+	/*!
+	 *****************************************************************************
+	 * \brief Listen Mode start
+	 * 
+	 * Configures RF Chip to go into listen mode enabling the given technologies
+	 * 
+	 * 
+	 * \param[in]  lmMask:    mask with the enabled/disabled listen modes
+	 *                        use: RFAL_LM_MASK_NFCA ; RFAL_LM_MASK_NFCB ; 
+	 *                             RFAL_LM_MASK_NFCF ; RFAL_LM_MASK_ACTIVE_P2P 
+	 * \param[in]  confA:     pointer to Passive A configurations (NULL if disabled)
+	 * \param[in]  confB:     pointer to Passive B configurations (NULL if disabled)
+	 * \param[in]  confF:     pointer to Passive F configurations (NULL if disabled)
+	 * \param[in]  rxBuf:     buffer to place incoming data
+	 * \param[in]  rxBufLen:  length in bits of rxBuf
+	 * \param[in]  rxLen:     pointer to write the data length in bits placed into rxBuf
+	 *  
+	 * 
+	 * \return ERR_PARAM    Invalid parameter
+	 * \return ERR_REQUEST  Invalid listen mode mask
+	 * \return ERR_NONE     Done with no error
+	 * 
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalListenStart( uint32_t lmMask, const rfalLmConfPA *confA, const rfalLmConfPB *confB, const rfalLmConfPF *confF, uint8_t *rxBuf, uint16_t rxBufLen, uint16_t *rxLen );
+
+
+	/*!
+	 *****************************************************************************
+	 * \brief Listen Mode start Sleeping
+	 * 
+	 * 
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalListenSleepStart( rfalLmState sleepSt, uint8_t *rxBuf, uint16_t rxBufLen, uint16_t *rxLen );
+
+
+	/*!
+	 *****************************************************************************
+	 * \brief Listen Mode Stop
+	 * 
+	 * Disables the listen mode on the RF Chip 
+	 * 
+	 * \warning the listen mode will be disabled immediately on the RFchip regardless 
+	 *          of any ongoing operations like Transceive
+	 * 
+	 * \return ERR_NONE Done with no error
+	 * 
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalListenStop( void );
+
+
+	/*!
+	 *****************************************************************************
+	 * \brief Listen Mode get state
+	 *
+	 * Sets the new state of the Listen Mode and applies the necessary changes 
+	 * on the RF Chip
+	 *
+	 * \param[out]  dataFlag: indicates that Listen Mode has rcvd data and caller
+	 *                         must process it. The received message is located
+	 *                         at the rxBuf passed on rfalListenStart().
+	 *                         rfalListenSetState() will clear this flag
+	 *                         if NULL output parameter will no be written/returned
+	 * \param[out]  lastBR:   bit rate detected  of the last initiator request 
+	 *                         if NULL output parameter will no be written/returned
+	 * 
+	 * \return rfalLmState  RFAL_LM_STATE_NOT_INIT : LM not initialized properly
+	 *                      Any Other              : LM State
+	 * 
+	 *****************************************************************************
+	 */
+	virtual rfalLmState rfalListenGetState( bool *dataFlag, rfalBitRate *lastBR );
+
+
+	/*!
+	 *****************************************************************************
+	 * \brief Listen Mode set state
+	 *
+	 * Sets the new state of the Listen Mode and applies the necessary changes 
+	 * on the RF Chip
+	 *  
+	 * \param[in] newSt : New state to go to
+	 * 
+	 * \return ERR_WRONG_STATE : Not initialized properly
+	 * \return ERR_PARAM       : Invalid parameter
+	 * \return ERR_NONE        : Done with no error
+	 * 
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalListenSetState( rfalLmState newSt );
+
+
+	/*****************************************************************************
+	 *  Wake-Up Mode                                                             *  
+	 *****************************************************************************/
+
+	/*!
+	 *****************************************************************************
+	 * \brief Wake-Up Mode Start
+	 *
+	 * Sets the RF Chip in Low Power Wake-Up Mode according to the given 
+	 * configuration.
+	 * 
+	 * \param[in] config       : Generic Wake-Up configuration provided by lower 
+	 *                            layers. If NULL will automatically configure the 
+	 *                            Wake-Up mode
+	 * 
+	 * \return ERR_WRONG_STATE : Not initialized properly
+	 * \return ERR_PARAM       : Invalid parameter
+	 * \return ERR_NONE        : Done with no error
+	 * 
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalWakeUpModeStart( const rfalWakeUpConfig *config );
+
+
+	/*!
+	 *****************************************************************************
+	 * \brief Wake-Up Has Woke
+	 *
+	 * Returns true if the Wake-Up mode is enabled and it has already received 
+	 * the indication from the RF Chip that the surrounding environment has changed
+	 * and flagged at least one wake-Up interrupt
+	 * 
+	 * \return true  : Wake-Up mode enabled and has received a wake-up IRQ
+	 * \return false : no Wake-Up IRQ has been received
+	 * 
+	 *****************************************************************************
+	 */
+	virtual bool rfalWakeUpModeHasWoke( void );
+
+
+	/*!
+	 *****************************************************************************
+	 * \brief Wake-Up Mode Stop
+	 *
+	 * Stops the Wake-Up Mode
+	 * 
+	 * \return ERR_WRONG_STATE : Not initialized properly
+	 * \return ERR_PARAM       : Invalid parameter
+	 * \return ERR_NONE        : Done with no error
+	 * 
+	 *****************************************************************************
+	 */
+	virtual ReturnCode rfalWakeUpModeStop( void );
+
 };
 
+
 #endif /* RFAL_RF_H */
+
+
+/**
+  * @}
+  *
+  * @}
+  *
+  * @}
+  */

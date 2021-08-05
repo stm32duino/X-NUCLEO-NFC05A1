@@ -1,7 +1,72 @@
+
+/******************************************************************************
+  * \attention
+  *
+  * <h2><center>&copy; COPYRIGHT 2016 STMicroelectronics</center></h2>
+  *
+  * Licensed under ST MYLIBERTY SOFTWARE LICENSE AGREEMENT (the "License");
+  * You may not use this file except in compliance with the License.
+  * You may obtain a copy of the License at:
+  *
+  *        www.st.com/myliberty
+  *
+  * Unless required by applicable law or agreed to in writing, software 
+  * distributed under the License is distributed on an "AS IS" BASIS, 
+  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied,
+  * AND SPECIFICALLY DISCLAIMING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
+  * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  *
+******************************************************************************/
+
+/*
+ *      PROJECT:   ST25R391x firmware
+ *      Revision:
+ *      LANGUAGE:  ISO C99
+ */
+
+/*! \file rfal_nfcf.h
+ *
+ *  \author Gustavo Patricio
+ *
+ *  \brief Implementation of NFC-F Poller (FeliCa PCD) device
+ *
+ *  The definitions and helpers methods provided by this module are 
+ *  aligned with NFC-F (FeliCa - JIS X6319-4)
+ *  
+ *  
+ * \addtogroup RFAL
+ * @{
+ *
+ * \addtogroup RFAL-AL
+ * \brief RFAL Abstraction Layer
+ * @{
+ *
+ * \addtogroup NFC-F
+ * \brief RFAL NFC-F Module
+ * @{  
+ *  
+ */
+
+
 #ifndef RFAL_NFCF_H
 #define RFAL_NFCF_H
 
-/* DEFINE */
+/*
+ ******************************************************************************
+ * INCLUDES
+ ******************************************************************************
+ */
+#include "st_errno.h"
+#include "rfal_rf.h"
+
+/*
+ ******************************************************************************
+ * GLOBAL DEFINES
+ ******************************************************************************
+ */
+
 #define RFAL_NFCF_NFCID2_LEN                    8U       /*!< NFCID2 (FeliCa IDm) length                        */
 #define RFAL_NFCF_SENSF_RES_LEN_MIN             16U      /*!< SENSF_RES minimum length                          */
 #define RFAL_NFCF_SENSF_RES_LEN_MAX             18U      /*!< SENSF_RES maximum length                          */
@@ -45,7 +110,6 @@
 #define RFAL_NFCF_SERVICECODE_RDONLY           0x000BU   /*!< NDEF Service Code as Read-Only                 T3T 1.0 7.2.1 */
 #define RFAL_NFCF_SERVICECODE_RDWR             0x0009U   /*!< NDEF Service Code as Read and Write            T3T 1.0 7.2.1 */
 
-/* ENUM */
 
 /*! NFC-F Felica command set   JIS X6319-4  9.1 */
 enum 
@@ -65,14 +129,23 @@ enum
     RFAL_NFCF_CMD_WRITE                        = 0x16, /*!< write Block Data to a Service that requires authentication     */
 };
 
+/*
+ ******************************************************************************
+ * GLOBAL MACROS
+ ******************************************************************************
+ */
 
-/* MACROS */
 /*! Checks if the given NFC-F device indicates NFC-DEP support */
 #define rfalNfcfIsNfcDepSupported( dev )  ( (((rfalNfcfListenDevice*)(dev))->sensfRes.NFCID2[RFAL_NFCF_SENSF_NFCID2_BYTE1_POS] == RFAL_NFCF_SENSF_NFCID2_BYTE1_NFCDEP) && \
                                             (((rfalNfcfListenDevice*)(dev))->sensfRes.NFCID2[RFAL_NFCF_SENSF_NFCID2_BYTE2_POS] == RFAL_NFCF_SENSF_NFCID2_BYTE2_NFCDEP)    )
 
 
-/* STRUCT */
+/*
+******************************************************************************
+* GLOBAL TYPES
+******************************************************************************
+*/
+
 
 /*! NFC-F SENSF_RES format  Digital 1.1  8.6.2 */
 typedef struct 
@@ -120,4 +193,44 @@ typedef struct
 }rfalNfcfServBlockListParam;
 
 
-#endif
+/*! Structure/Buffer to hold the SENSF_RES with LEN byte prepended                                 */
+typedef struct{
+    uint8_t           LEN;                                /*!< NFC-F LEN byte                      */
+    rfalNfcfSensfRes  SENSF_RES;                          /*!< SENSF_RES                           */
+} rfalNfcfSensfResBuf;
+
+
+/*! Greedy collection for NFCF GRE_POLL_F  Activity 1.0 Table 10                                   */
+typedef struct{
+    uint8_t              pollFound;                       /*!< Number of devices found by the Poll */
+    uint8_t              pollCollision;                   /*!< Number of collisions detected       */
+    rfalFeliCaPollRes    POLL_F[RFAL_NFCF_POLL_MAXCARDS]; /*!< GRE_POLL_F   Activity 1.0 Table 10  */
+} rfalNfcfGreedyF;
+
+
+/*! NFC-F SENSF_REQ format  Digital 1.1  8.6.1                     */
+typedef struct
+{
+    uint8_t  CMD;                          /*!< Command code: 00h  */
+    uint8_t  SC[RFAL_NFCF_SENSF_SC_LEN];   /*!< System Code        */
+    uint8_t  RC;                           /*!< Request Code       */
+    uint8_t  TSN;                          /*!< Time Slot Number   */
+} rfalNfcfSensfReq;
+
+
+/*
+******************************************************************************
+* GLOBAL FUNCTION PROTOTYPES
+******************************************************************************
+*/
+
+
+#endif /* RFAL_NFCF_H */
+
+/**
+  * @}
+  *
+  * @}
+  *
+  * @}
+  */

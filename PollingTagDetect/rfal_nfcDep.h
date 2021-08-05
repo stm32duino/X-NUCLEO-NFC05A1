@@ -1,5 +1,74 @@
-/* NFC_DEP*/
 
+/******************************************************************************
+  * \attention
+  *
+  * <h2><center>&copy; COPYRIGHT 2016 STMicroelectronics</center></h2>
+  *
+  * Licensed under ST MYLIBERTY SOFTWARE LICENSE AGREEMENT (the "License");
+  * You may not use this file except in compliance with the License.
+  * You may obtain a copy of the License at:
+  *
+  *        www.st.com/myliberty
+  *
+  * Unless required by applicable law or agreed to in writing, software 
+  * distributed under the License is distributed on an "AS IS" BASIS, 
+  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied,
+  * AND SPECIFICALLY DISCLAIMING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
+  * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  *
+******************************************************************************/
+
+
+/*
+ *      PROJECT:   ST25R391x firmware
+ *      Revision:
+ *      LANGUAGE:  ISO C99
+ */
+
+/*! \file rfal_nfcDep.h
+ *
+ *  \author  Gustavo Patricio
+ *
+ *  \brief Implementation of NFC-DEP protocol
+ *  
+ *  NFC-DEP is also known as NFCIP - Near Field Communication 
+ *  Interface and Protocol
+ *  
+ *  This implementation was based on the following specs:
+ *    - NFC Forum Digital 1.1
+ *    - ECMA 340 3rd Edition 2013
+ *
+ *
+ * \addtogroup RFAL
+ * @{
+ *
+ * \addtogroup RFAL-AL
+ * \brief RFAL Abstraction Layer
+ * @{
+ *
+ * \addtogroup NFC-DEP
+ * \brief RFAL NFC-DEP Module
+ * @{
+ */
+
+#ifndef RFAL_NFCDEP_H_
+#define RFAL_NFCDEP_H_
+
+/*
+ ******************************************************************************
+ * INCLUDES
+ ******************************************************************************
+ */
+#include "st_errno.h"
+#include "rfal_rf.h"
+
+/*
+ ******************************************************************************
+ * DEFINES
+ ******************************************************************************
+ */
 #define RFAL_NFCDEP_FRAME_SIZE_MAX_LEN  254U             /*!< NFCIP Maximum Frame Size   Digital 1.0 Table 91                */
 #define RFAL_NFCDEP_DEPREQ_HEADER_LEN   5U               /*!< DEP_REQ header length: CMD_TYPE + CMD_CMD + PBF + DID + NAD    */
 
@@ -103,8 +172,9 @@
 /*! 
  *  Despite DIGITAL 1.0 14.6.2.1 stating that the last two bytes may filled with 
  *  any value, some devices (Samsung Google Nexus) only accept when these are 0 */ 
-#define rfalNfcDepSetNFCID( dst, src, len )   memset( (dst), 0x00, RFAL_NFCDEP_NFCID3_LEN ); \
-                                              if( (len) > 0U ) {memcpy( (dst), (src), (len) );}
+#define rfalNfcDepSetNFCID( dst, src, len )   ST_MEMSET( (dst), 0x00, RFAL_NFCDEP_NFCID3_LEN ); \
+                                              if( (len) > 0U ) {ST_MEMCPY( (dst), (src), (len) );}
+
 /*
  ******************************************************************************
  * GLOBAL ENUMERATIONS
@@ -331,3 +401,129 @@ typedef struct
     uint16_t            FSx;            /*!< Other device Frame Size (FSD or FSC)      */
     uint8_t             DID;            /*!< Device ID (RFAL_ISODEP_NO_DID if no DID)  */
 } rfalNfcDepTxRxParam;
+
+
+/*! Struct that holds all DEP parameters/configs for the following communications */
+typedef struct{
+    uint8_t   did;           /*!< Device ID (DID) to be used                      */
+    
+    uint8_t*  txBuf;         /*!< Pointer to the Tx buffer to be sent             */
+    uint16_t  txBufLen;      /*!< Length of the data in the txBuf                 */
+    uint8_t   txBufPaylPos;  /*!< Position inside txBuf where data starts         */
+    bool      txChaining;    /*!< Flag indicating chaining on transmission        */
+    
+    uint8_t*  rxBuf;         /*!< Pointer to the Rx buffer for incoming data      */
+    uint16_t  rxBufLen;      /*!< Length of the data in the rxBuf                 */
+    uint8_t   rxBufPaylPos;  /*!< Position inside rxBuf where data is to be placed*/
+    
+    uint32_t  fwt;           /*!< Frame Waiting Time (FWT) to be used             */
+    uint32_t  dFwt;          /*!< Delta Frame Waiting Time (dFWT) to be used      */
+    uint16_t  fsc;           /*!< Frame Size (FSC) to be used                     */
+    
+} rfalNfcDepDEPParams;
+
+/*! NFCIP commands (Request, Response) */
+typedef enum{
+    NFCIP_CMD_ATR_REQ = 0x00,
+    NFCIP_CMD_ATR_RES = 0x01,
+    NFCIP_CMD_WUP_REQ = 0x02,
+    NFCIP_CMD_WUP_RES = 0x03,
+    NFCIP_CMD_PSL_REQ = 0x04,
+    NFCIP_CMD_PSL_RES = 0x05,
+    NFCIP_CMD_DEP_REQ = 0x06,
+    NFCIP_CMD_DEP_RES = 0x07,
+    NFCIP_CMD_DSL_REQ = 0x08,
+    NFCIP_CMD_DSL_RES = 0x09,
+    NFCIP_CMD_RLS_REQ = 0x0A,
+    NFCIP_CMD_RLS_RES = 0x0B
+} rfalNfcDepCmd;
+
+
+/*! NFCIP module states */
+typedef enum
+{
+    NFCIP_ST_IDLE,
+    NFCIP_ST_INIT_IDLE,
+    NFCIP_ST_INIT_ATR,
+    NFCIP_ST_INIT_PSL,
+    NFCIP_ST_INIT_DEP_IDLE,
+    NFCIP_ST_INIT_DEP_TX,
+    NFCIP_ST_INIT_DEP_RX,
+    NFCIP_ST_INIT_DEP_ATN,
+    NFCIP_ST_INIT_DSL,
+    NFCIP_ST_INIT_RLS,
+        
+    NFCIP_ST_TARG_WAIT_ATR,
+    NFCIP_ST_TARG_WAIT_ACTV,
+    NFCIP_ST_TARG_DEP_IDLE,
+    NFCIP_ST_TARG_DEP_RX,
+    NFCIP_ST_TARG_DEP_RTOX,
+    NFCIP_ST_TARG_DEP_TX,
+    NFCIP_ST_TARG_DEP_SLEEP
+} rfalNfcDepState;
+
+
+/*! Struct that holds all NFCIP data */
+typedef struct{  
+  rfalNfcDepConfigs       cfg;               /*!< Holds the current configuration to be used    */
+  
+  rfalNfcDepState         state;             /*!< Current state of the NFCIP module             */
+  uint8_t                 pni;               /*!< Packet Number Information (PNI) counter       */
+  
+  uint8_t                 lastCmd;           /*!< Last command sent                             */
+  uint8_t                 lastPFB;           /*!< Last PFB sent                                 */
+  uint8_t                 lastPFBnATN;       /*!< Last PFB sent (excluding  ATN)                */
+  uint8_t                 lastRTOX;          /*!< Last RTOX value sent                          */
+  
+  uint8_t                 cntTxRetrys;       /*!< Retransmissions counter                       */
+  uint8_t                 cntTORetrys;       /*!< Timeouts counter                              */
+  uint8_t                 cntRTOXRetrys;     /*!< RTOX counter                                  */
+  uint8_t                 cntNACKRetrys;     /*!< NACK counter                                  */
+  uint8_t                 cntATNRetrys;      /*!< Attention (ATN) counter                       */
+  
+  uint16_t                fsc;               /*!< Current Frame Size (FSC) to be used           */
+  bool                    isTxChaining;      /*!< Flag for chaining on Transmission             */
+  bool                    isRxChaining;      /*!< Flag for chaining on Reception                */
+  uint8_t*                txBuf;             /*!< Pointer to the Tx buffer to be sent           */
+  uint8_t*                rxBuf;             /*!< Pointer to the Rx buffer for incoming data    */
+  uint16_t                txBufLen;          /*!< Length of the data in the txBuf               */
+  uint16_t                rxBufLen;          /*!< Length of rxBuf buffer                        */
+  uint16_t*               rxRcvdLen;         /*!< Length of the data in the rxBuf               */
+  uint8_t                 txBufPaylPos;      /*!< Position in txBuf where data starts           */
+  uint8_t                 rxBufPaylPos;      /*!< Position in rxBuf where data is to be placed  */
+  bool                    *isChaining;       /*!< Flag for chaining on Reception                */
+  
+  rfalNfcDepDevice        *nfcDepDev;        /*!< Pointer to NFC-DEP device info                */
+
+  uint32_t                RTOXTimer;         /*!< Timer used for RTOX                           */  
+  rfalNfcDepDeactCallback isDeactivating;    /*!< Deactivating flag check callback              */
+  
+  bool                    isReqPending;      /*!< Flag pending REQ from Target activation       */
+  bool                    isTxPending;       /*!< Flag pending DEP Block while waiting RTOX Ack */
+  bool                    isWait4RTOX;       /*!< Flag for waiting RTOX Ack                     */
+}rfalNfcDep;
+
+
+/*
+ * *****************************************************************************
+ * GLOBAL VARIABLE DECLARATIONS
+ ******************************************************************************
+ */
+
+
+/*
+ ******************************************************************************
+ * GLOBAL FUNCTION PROTOTYPES
+ ******************************************************************************
+ */
+
+
+#endif /* RFAL_NFCDEP_H_ */
+
+/**
+  * @}
+  *
+  * @}
+  *
+  * @}
+  */

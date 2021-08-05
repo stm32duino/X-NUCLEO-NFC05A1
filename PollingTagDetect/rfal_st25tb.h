@@ -26,16 +26,13 @@
  *      LANGUAGE:  ISO C99
  */
 
-/*! \file rfal_t1t.h
+/*! \file rfal_st25tb.h
  *
  *  \author Gustavo Patricio
  *
- *  \brief Provides NFC-A T1T convenience methods and definitions
- *  
- *  This module provides an interface to perform as a NFC-A Reader/Writer
- *  to handle a Type 1 Tag T1T (Topaz)
- *  
- *  
+ *  \brief Implementation of ST25TB interface 
+ *
+ *
  * \addtogroup RFAL
  * @{
  *
@@ -43,15 +40,15 @@
  * \brief RFAL Abstraction Layer
  * @{
  *
- * \addtogroup T1T
- * \brief RFAL T1T Module
+ * \addtogroup ST25TB
+ * \brief RFAL ST25TB Module
  * @{
- *  
+ * 
  */
 
 
-#ifndef RFAL_T1T_H
-#define RFAL_T1T_H
+#ifndef RFAL_ST25TB_H
+#define RFAL_ST25TB_H
 
 /*
  ******************************************************************************
@@ -60,28 +57,25 @@
  */
 #include "st_errno.h"
 #include "rfal_rf.h"
+#include "rfal_nfcb.h"
 
 /*
  ******************************************************************************
  * GLOBAL DEFINES
  ******************************************************************************
  */
-#define RFAL_T1T_UID_LEN               4   /*!< T1T UID length of cascade level 1 only tag  */
-#define RFAL_T1T_HR_LENGTH             2   /*!< T1T HR(Header ROM) length                   */
 
-#define RFAL_T1T_HR0_NDEF_MASK      0xF0   /*!< T1T HR0 NDEF capability mask  T1T 1.2 2.2.2 */
-#define RFAL_T1T_HR0_NDEF_SUPPORT   0x10   /*!< T1T HR0 NDEF capable value    T1T 1.2 2.2.2 */
+#define RFAL_ST25TB_CHIP_ID_LEN      1U       /*!< ST25TB chip ID length       */
+#define RFAL_ST25TB_CRC_LEN          2U       /*!< ST25TB CRC length           */
+#define RFAL_ST25TB_UID_LEN          8U       /*!< ST25TB Unique ID length     */
+#define RFAL_ST25TB_BLOCK_LEN        4U       /*!< ST25TB Data Block length    */
 
+/*
+******************************************************************************
+* GLOBAL MACROS
+******************************************************************************
+*/
 
-/*! NFC-A T1T (Topaz) command set */
-typedef enum
-{
-    RFAL_T1T_CMD_RID      = 0x78,          /*!< T1T Read UID                                */
-    RFAL_T1T_CMD_RALL     = 0x00,          /*!< T1T Read All                                */
-    RFAL_T1T_CMD_READ     = 0x01,          /*!< T1T Read                                    */
-    RFAL_T1T_CMD_WRITE_E  = 0x53,          /*!< T1T Write with erase (single byte)          */
-    RFAL_T1T_CMD_WRITE_NE = 0x1A           /*!< T1T Write with no erase (single byte)       */
-} rfalT1Tcmds;
 
 
 /*
@@ -89,15 +83,18 @@ typedef enum
 * GLOBAL TYPES
 ******************************************************************************
 */
+typedef uint8_t rfalSt25tbUID[RFAL_ST25TB_UID_LEN];        /*!< ST25TB UID type          */
+typedef uint8_t rfalSt25tbBlock[RFAL_ST25TB_BLOCK_LEN];    /*!< ST25TB Block type        */
 
 
-/*! NFC-A T1T (Topaz) RID_RES  Digital 1.1  10.6.2 & Table 50 */
+/*! ST25TB listener device (PICC) struct  */
 typedef struct
 {
-    uint8_t hr0;                           /*!< T1T Header ROM: HR0                         */
-    uint8_t hr1;                           /*!< T1T Header ROM: HR1                         */
-    uint8_t uid[RFAL_T1T_UID_LEN];         /*!< T1T UID                                     */
-} rfalT1TRidRes;
+    uint8_t           chipID;                              /*!< Device's session Chip ID */
+    rfalSt25tbUID     UID;                                 /*!< Device's UID             */
+    bool              isDeselected;                        /*!< Device deselect flag     */
+}rfalSt25tbListenDevice;
+
 
 /*
 ******************************************************************************
@@ -106,7 +103,7 @@ typedef struct
 */
 
 
-#endif /* RFAL_T1T_H */
+#endif /* RFAL_ST25TB_H */
 
 /**
   * @}
@@ -115,3 +112,4 @@ typedef struct
   *
   * @}
   */
+

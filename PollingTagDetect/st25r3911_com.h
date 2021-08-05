@@ -1,4 +1,90 @@
+
+/******************************************************************************
+  * \attention
+  *
+  * <h2><center>&copy; COPYRIGHT 2016 STMicroelectronics</center></h2>
+  *
+  * Licensed under ST MYLIBERTY SOFTWARE LICENSE AGREEMENT (the "License");
+  * You may not use this file except in compliance with the License.
+  * You may obtain a copy of the License at:
+  *
+  *        www.st.com/myliberty
+  *
+  * Unless required by applicable law or agreed to in writing, software 
+  * distributed under the License is distributed on an "AS IS" BASIS, 
+  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied,
+  * AND SPECIFICALLY DISCLAIMING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
+  * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  *
+******************************************************************************/
+
+
+/*
+ *      PROJECT:   ST25R3911 firmware
+ *      Revision:
+ *      LANGUAGE:  ISO C99
+ */
+
+/*! \file
+ *
+ *  \author Ulrich Herrmann
+ *
+ *  \brief ST25R3911 communication declaration file
+ *
+ */
+/*!
+ * This driver provides basic abstraction for communication with the ST25R3911.
+ * It uses the SPI driver for interfacing with the ST25R3911.
+ *
+ * API:
+ * - Read Register: #st25r3911ReadRegister
+ * - Modify Register: #st25r3911ModifyRegister
+ * - Write Register: #st25r3911WriteRegister
+ * - Write Multiple Registers: #st25r3911WriteMultipleRegisters
+ * - Load ST25R3911 FIFO with data: #st25r3911WriteFifo
+ * - Read from ST25R3911 FIFO: #st25r3911ReadFifo
+ * - Execute direct command: #st25r3911ExecuteCommand
+ * 
+ *
+ * \addtogroup RFAL
+ * @{
+ *
+ * \addtogroup RFAL-HAL
+ * \brief RFAL Hardware Abstraction Layer
+ * @{
+ *
+ * \addtogroup ST25R3911
+ * \brief RFAL ST25R3911 Driver
+ * @{
+ * 
+ * \addtogroup ST25R3911_Com
+ * \brief RFAL ST25R3911 Communication
+ * @{
+ * 
+ */
+
+#ifndef ST25R3911_COM_H
+#define ST25R3911_COM_H
+
+/*
+******************************************************************************
+* INCLUDES
+******************************************************************************
+*/
+#include "st_errno.h"
+
+/*
+******************************************************************************
+* GLOBAL DEFINES
+******************************************************************************
+*/
+
 #define ST25R3911_FIFO_STATUS_LEN                  2           /*!< Number of FIFO Status Register */
+
+
+
 
 #define ST25R3911_REG_IO_CONF1                     0x00U        /*!< RW IO Configuration Register 1 */
 #define ST25R3911_REG_IO_CONF2                     0x01U        /*!< RW IO Configuration Register 2 */
@@ -458,11 +544,24 @@
 #define ST25R3911_REG_IC_IDENTITY_shift_ic_type               (3U)
 #define ST25R3911_REG_IC_IDENTITY_mask_ic_rev                 (7U)
 
-#define ST25R3911_WRITE_MODE  (0U)                           /*!< ST25R3911 SPI Operation Mode: Write                            */
-#define ST25R3911_READ_MODE   (1U << 6)                      /*!< ST25R3911 SPI Operation Mode: Read                             */
-#define ST25R3911_FIFO_LOAD   (2U << 6)                      /*!< ST25R3911 SPI Operation Mode: FIFO Load                        */
-#define ST25R3911_FIFO_READ   (0xBFU)                        /*!< ST25R3911 SPI Operation Mode: FIFO Read                        */
-#define ST25R3911_CMD_MODE    (3U << 6)                      /*!< ST25R3911 SPI Operation Mode: Direct Command                   */
+/*! \endcond DOXYGEN_SUPRESS */
 
-#define ST25R3911_CMD_LEN     (1U)                           /*!< ST25R3911 CMD length                                           */
-#define ST25R3911_BUF_LEN     (ST25R3911_CMD_LEN+ST25R3911_FIFO_DEPTH)  /*!< ST25R3911 communication buffer: CMD + FIFO length   */
+/*
+******************************************************************************
+* GLOBAL FUNCTION PROTOTYPES
+******************************************************************************
+*/
+
+
+#endif /* ST25R3911_COM_H */
+
+/**
+  * @}
+  *
+  * @}
+  *
+  * @}
+  * 
+  * @}
+  */
+

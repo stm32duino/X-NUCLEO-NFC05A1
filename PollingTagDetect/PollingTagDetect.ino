@@ -1,140 +1,248 @@
-#include "rfal_nfc.h"
+/******************************************************************************
+  * \attention
+  *
+  * <h2><center>&copy; COPYRIGHT 2019 STMicroelectronics</center></h2>
+  *
+  * Licensed under ST MYLIBERTY SOFTWARE LICENSE AGREEMENT (the "License");
+  * You may not use this file except in compliance with the License.
+  * You may obtain a copy of the License at:
+  *
+  *        www.st.com/myliberty
+  *
+  * Unless required by applicable law or agreed to in writing, software 
+  * distributed under the License is distributed on an "AS IS" BASIS, 
+  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied,
+  * AND SPECIFICALLY DISCLAIMING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
+  * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  *
+******************************************************************************/
 
-/* DEFINE */
+/*! \file
+ *
+ *  \author 
+ *
+ *  \brief Demo application
+ *
+ *  This demo shows how to poll for several types of NFC cards/devices and how 
+ *  to exchange data with these devices, using the RFAL library.
+ *
+ *  This demo does not fully implement the activities according to the standards,
+ *  it performs the required to communicate with a card/device and retrieve 
+ *  its UID. Also blocking methods are used for data exchange which may lead to
+ *  long periods of blocking CPU/MCU.
+ *  For standard compliant example please refer to the Examples provided
+ *  with the RFAL library.
+ * 
+ */
+ 
+/*
+ ******************************************************************************
+ * INCLUDES
+ ******************************************************************************
+ */
+#include "SPI.h"
+#include "nfc_utils.h"
+#include "rfal_nfc.h"
+#include "rfal_rfst25r3911.h"
+#include "ndef_class.h"
+
+/*
+******************************************************************************
+* GLOBAL DEFINES
+******************************************************************************
+*/
+
 #define SPI_MOSI D11
 #define SPI_MISO D12
 #define SPI_SCK D13
 #define CS_PIN D10 
-#define LED1_PIN A1 
-#define LED2_PIN A2 
-#define LED3_PIN A3
-#define LED4_PIN D5
-#define LED5_PIN D4
-#define LED6_PIN D3
+#define LED_A_PIN A3 
+#define LED_B_PIN A2 
+#define LED_F_PIN A1
+#define LED_V_PIN D5
+#define LED_AP2P_PIN D4
+#define LED_FIELD_PIN D7
 #define IRQ_PIN A0
-#define USE_LOGGER 0 /* to enable the debug, must set USE_LOGGER to 1*/
 
-/* USE_LOGGER == 1 */
-#define MAX_HEX_STR         4
-#define MAX_HEX_STR_LENGTH  128
-char hexStr[MAX_HEX_STR][MAX_HEX_STR_LENGTH];
-uint8_t hexStrIdx = 0;
-/* #if USE_LOGGER == LOGGER_ON */
+/* Definition of possible states the demo state machine could have */
+#define DEMO_ST_NOTINIT               0  /*!< Demo State:  Not initialized */
+#define DEMO_ST_START_DISCOVERY       1  /*!< Demo State:  Start Discovery */
+#define DEMO_ST_DISCOVERY             2  /*!< Demo State:  Discovery       */
 
-static uint8_t state = DEMO_ST_NOTINIT;
-int PushButtonState = 0;
-static rfalNfcDevice *nfcDevice;
+#define NDEF_DEMO_READ              0U   /*!< NDEF menu read               */
+#define NDEF_DEMO_WRITE_MSG1        1U   /*!< NDEF menu write 1 record     */
+#define NDEF_DEMO_WRITE_MSG2        2U   /*!< NDEF menu write 2 records    */
+#define NDEF_DEMO_FORMAT_TAG        3U   /*!< NDEF menu format tag         */
 
-/* FUNCTION */
-static void demoNotif( rfalNfcState st );
-static void demoCycle();
-static void demoAPDU();
-static void demoP2P();
-static void demoNfcf( rfalNfcfListenDevice *nfcfDev );
-static void demoNfcv( rfalNfcvListenDevice *nfcvDev );
-static void demoCE( rfalNfcDevice *nfcDev );
+#define NDEF_DEMO_MAX_FEATURES      4U   /*!< Number of menu items         */
 
-void IRQCallback();
-char* hex2Str(unsigned char * data, size_t dataLen);
-ReturnCode demoTransceiveBlocking( uint8_t *txBuf, uint16_t txBufSize, uint8_t **rxData, uint16_t **rcvLen, uint32_t fwt );
+#define NDEF_WRITE_FORMAT_TIMEOUT   10000U /*!< When write or format mode is selected, demo returns back to read mode after a timeout */
+#define NDEF_LED_BLINK_DURATION       250U /*!< Led blink duration         */ 
+
+#define DEMO_RAW_MESSAGE_BUF_LEN      8192 /*!< Raw message buffer len     */
+
+#define DEMO_ST_MANUFACTURER_ID      0x02U /*!< ST Manufacturer ID         */
+
+/*
+ ******************************************************************************
+ * GLOBAL MACROS
+ ******************************************************************************
+ */
+
+/*
+ ******************************************************************************
+ * LOCAL VARIABLES
+ ******************************************************************************
+ */
 
 /* P2P communication data */
 static uint8_t NFCID3[] = {0x01, 0xFE, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A};
 static uint8_t GB[] = {0x46, 0x66, 0x6d, 0x01, 0x01, 0x11, 0x02, 0x02, 0x07, 0x80, 0x03, 0x02, 0x00, 0x03, 0x04, 0x01, 0x32, 0x07, 0x01, 0x03};
-    
-/* APDUs communication data */    
-static uint8_t ndefSelectApp[] = { 0x00, 0xA4, 0x04, 0x00, 0x07, 0xD2, 0x76, 0x00, 0x00, 0x85, 0x01, 0x01, 0x00 };
-static uint8_t ccSelectFile[] = { 0x00, 0xA4, 0x00, 0x0C, 0x02, 0xE1, 0x03};
-static uint8_t readBynary[] = { 0x00, 0xB0, 0x00, 0x00, 0x0F };
-/*static uint8_t ppseSelectApp[] = { 0x00, 0xA4, 0x04, 0x00, 0x0E, 0x32, 0x50, 0x41, 0x59, 0x2E, 0x53, 0x59, 0x53, 0x2E, 0x44, 0x44, 0x46, 0x30, 0x31, 0x00 };*/
 
 /* P2P communication data */    
 static uint8_t ndefLLCPSYMM[] = {0x00, 0x00};
 static uint8_t ndefInit[] = {0x05, 0x20, 0x06, 0x0F, 0x75, 0x72, 0x6E, 0x3A, 0x6E, 0x66, 0x63, 0x3A, 0x73, 0x6E, 0x3A, 0x73, 0x6E, 0x65, 0x70, 0x02, 0x02, 0x07, 0x80, 0x05, 0x01, 0x02};
-static uint8_t ndefUriSTcom[] = {0x13, 0x20, 0x00, 0x10, 0x02, 0x00, 0x00, 0x00, 0x19, 0xc1, 0x01, 0x00, 0x00, 0x00, 0x12, 0x55, 0x00, 0x68, 0x74, 0x74, 0x70, 0x3a, 0x2f, 0x2f, 0x77, 0x77, 0x77, 0x2e, 0x73, 0x74, 0x2e, 0x63, 0x6f, 0x6d};
+static const uint8_t ndefSnepPrefix[] = { 0x13, 0x20, 0x00, 0x10, 0x02, 0x00, 0x00, 0x00 };
+static const uint8_t URL[] = "st.com";
+static ndefConstBuffer bufURL = { URL, sizeof(URL) - 1 };
+static uint8_t ndefUriBuffer[255]; 
+
+static uint8_t *ndefStates[] =
+{
+    (uint8_t *)"INVALID",
+    (uint8_t *)"INITIALIZED",
+    (uint8_t *)"READ/WRITE",
+    (uint8_t *)"READ-ONLY"
+};
+
+static const uint8_t *ndefDemoFeatureDescription[NDEF_DEMO_MAX_FEATURES] =
+{
+    (uint8_t *)"1. Tap a tag to read its content",
+    (uint8_t *)"2. Present a tag to write a Text record",
+    (uint8_t *)"3. Present a tag to write a URI record and an Android Application record",
+    (uint8_t *)"4. Present an ST tag to format",
+};
+
+static uint8_t ndefURI[]          = "st.com";
+static uint8_t ndefTEXT[]         = "Welcome to ST NDEF demo";
+static uint8_t ndefTextLangCode[] = "en";
+
+static uint8_t ndefAndroidPackName[] = "com.st.st25nfc";
+  
+/*
+ ******************************************************************************
+ * LOCAL VARIABLES
+ ******************************************************************************
+ */
+static rfalNfcDiscoverParam discParam;
+static uint8_t              state = DEMO_ST_NOTINIT;
+
+static uint8_t              ndefDemoFeature     = NDEF_DEMO_READ;
+static uint8_t              ndefDemoPrevFeature = 0xFF;
+static bool                 verbose             = false;
+
+static uint8_t              rawMessageBuf[DEMO_RAW_MESSAGE_BUF_LEN];
+
+static uint32_t             timer;
+static uint32_t             timerLed;
+static bool                 ledOn;
+
+
+
+
+#define MAX_HEX_STR         4
+#define MAX_HEX_STR_LENGTH  128
+char hexStr[MAX_HEX_STR][MAX_HEX_STR_LENGTH];
+uint8_t hexStrIdx = 0;
+
+int PushButtonState = 0;
 
 /* SPI, Component and NFC */
 SPIClass dev_spi(SPI_MOSI, SPI_MISO, SPI_SCK);
-rfal_rfst25r3911b rfst25r3911b(&dev_spi, CS_PIN,IRQ_PIN);  /* 0 -> default speed */
-rfal_nfc rfal_nfc(&rfst25r3911b);
+RfalRfST25R3911BClass rfst25r3911b(&dev_spi, CS_PIN, IRQ_PIN);
+RfalNfcClass rfal_nfc(&rfst25r3911b);
+NdefClass ndef(&rfal_nfc);
 
+/*
+******************************************************************************
+* LOCAL FUNCTION PROTOTYPES
+******************************************************************************
+*/
 
-void setup() {
-  Serial.begin(115200);
-  dev_spi.begin();
+static void demoNdef(rfalNfcDevice *nfcDevice);
+static void ndefCCDump(void);
+static void ndefDumpSysInfo(void);
 
-  pinMode(LED1_PIN, OUTPUT);
-  pinMode(LED2_PIN, OUTPUT);
-  pinMode(LED3_PIN, OUTPUT);
-  pinMode(LED4_PIN, OUTPUT);
-  pinMode(LED5_PIN, OUTPUT);
-  pinMode(IRQ_PIN, INPUT);
-  pinMode(USER_BTN, INPUT);
-  
-  /* Check what is the Push Button State when the button is not pressed. It can change across families */
-  PushButtonState = (digitalRead(USER_BTN)) ?  0 : 1;
-  
-  attachInterrupt(IRQ_PIN,IRQCallback,RISING);
+static bool ndefIsSTTag(void);
+static void LedNotificationWriteDone(void);
 
-  Serial.println("Welcome to X-NUCLEO-NFC05A1");
-  
-  /* Inizialize Component */
-  if(rfal_nfc.rfalNfcInitialize() == ERR_NONE){
-      rfal_nfc.discParam.compMode      = RFAL_COMPLIANCE_MODE_NFC;
-      rfal_nfc.discParam.devLimit      = 1U;
-      rfal_nfc.discParam.nfcfBR        = RFAL_BR_212;
-      rfal_nfc.discParam.ap2pBR        = RFAL_BR_424;
-            
-      memcpy( &(rfal_nfc.discParam.nfcid3), NFCID3, sizeof(NFCID3) );
-      memcpy( &(rfal_nfc.discParam.GB), GB, sizeof(GB) );
-      rfal_nfc.discParam.GBLen         = sizeof(GB);
-    
-      rfal_nfc.discParam.notifyCb           = demoNotif;
-      rfal_nfc.discParam.totalDuration        = 1000U;
-      rfal_nfc.discParam.wakeupEnabled        = false;
-      rfal_nfc.discParam.wakeupConfigDefault  = true;
-      rfal_nfc.discParam.techs2Find           = ( RFAL_NFC_POLL_TECH_A | RFAL_NFC_POLL_TECH_B | RFAL_NFC_POLL_TECH_F | RFAL_NFC_POLL_TECH_V | RFAL_NFC_POLL_TECH_ST25TB );
-           
-      rfal_nfc.discParam.techs2Find   |= RFAL_NFC_POLL_TECH_AP2P;
-      state = DEMO_ST_START_DISCOVERY;
-      LEDCycle();
-      Serial.println("Correctly Inizialized");  
-  }else{
-    Serial.println("Initialization failed...");
-    while(1){
-      digitalWrite(LED1_PIN, HIGH);
-      delay(100);
-      digitalWrite(LED1_PIN, LOW);
-      delay(100);
-    }
-  }
-    
+static void demoP2P( void );
+ReturnCode  demoTransceiveBlocking( uint8_t *txBuf, uint16_t txBufSize, uint8_t **rxBuf, uint16_t **rcvLen, uint32_t fwt );
 
-  Serial.println("Start POLLING");
-}
+static void ledsOn(void);
+static void ledsOff(void);
 
-void loop() {
- demoCycle();
-}
+static ReturnCode ndefRecordDump(const ndefRecord* record, bool verbose);
+static ReturnCode ndefMessageDump(const ndefMessage* message, bool verbose);
+static ReturnCode ndefEmptyTypeDump(const ndefType* empty);
+static ReturnCode ndefRtdDeviceInfoDump(const ndefType* devInfo);
+static ReturnCode ndefRtdTextDump(const ndefType* text);
+static ReturnCode ndefRtdUriDump(const ndefType* uri);
+static ReturnCode ndefRtdAarDump(const ndefType* ext);
+static ReturnCode ndefMediaVCardDump(const ndefType* vCard);
+static ReturnCode ndefMediaWifiDump(const ndefType* wifi);
+static ReturnCode ndefRecordDumpType(const ndefRecord* record);
+static ReturnCode ndefBufferDump(const char* string, const ndefConstBuffer* bufPayload, bool verbose);
+static ReturnCode ndefBufferPrint(const char* prefix, const ndefConstBuffer* bufPayload, const char* suffix);
+static ReturnCode ndefBuffer8Print(const char* prefix, const ndefConstBuffer8* bufPayload, const char* suffix);
 
-void IRQCallback()
+/*! Table to associate enums to pointer to function */
+typedef struct
 {
-  rfal_nfc.CheckInterrupts();
-}
+    ndefTypeId typeId;                        /*!< NDEF type Id             */
+    ReturnCode (*dump)(const ndefType* type); /*!< Pointer to dump function */
+} ndefTypeDumpTable;
 
-void demoCycle(){
 
-  rfal_nfc.rfalNfcWorker();                                    /* Run RFAL worker periodically */  
+static const ndefTypeDumpTable typeDumpTable[] =
+{
+    { NDEF_TYPE_EMPTY,           ndefEmptyTypeDump       },
+    { NDEF_TYPE_RTD_DEVICE_INFO, ndefRtdDeviceInfoDump   },
+    { NDEF_TYPE_RTD_TEXT,        ndefRtdTextDump         },
+    { NDEF_TYPE_RTD_URI,         ndefRtdUriDump          },
+    { NDEF_TYPE_RTD_AAR,         ndefRtdAarDump          },
+    { NDEF_TYPE_MEDIA_VCARD,     ndefMediaVCardDump      },
+    { NDEF_TYPE_MEDIA_WIFI,      ndefMediaWifiDump       },
+};
 
-  if( digitalRead(USER_BTN) == PushButtonState )
-  {
-        rfal_nfc.discParam.wakeupEnabled = !(rfal_nfc.discParam.wakeupEnabled);    /* enable/disable wakeup */
-        state = DEMO_ST_START_DISCOVERY;                       /* restart loop          */
-        Serial.print("Toggling Wake Up mode");
-        Serial.print(rfal_nfc.discParam.wakeupEnabled ? "ON": "OFF");
-        Serial.println("\r\n"); 
-        
-        /* Debouncing */
+static char* hex2Str(unsigned char * data, size_t dataLen);
+void IRQCallback();
+
+
+/*!
+ *****************************************************************************
+ * \brief Check user button
+ *
+ *  This function check whethe the user button has been pressed
+ *****************************************************************************
+ */
+
+static void checkUserButton(void)
+{
+    /* Check if USER button is pressed */
+    if( digitalRead(USER_BTN) == PushButtonState )
+    {
+        ndefDemoFeature++;
+        ndefDemoFeature %= NDEF_DEMO_MAX_FEATURES;
+
+        ledsOff();
+        ndefDemoPrevFeature = ndefDemoFeature;
+        Serial.print((char *)ndefDemoFeatureDescription[ndefDemoFeature]);
+        Serial.print("\r\n");
+
+        /* Debounce button */
         delay(50);
 
         /* Wait until the button is released */
@@ -142,108 +250,270 @@ void demoCycle(){
 
         /* Debouncing */
         delay(50);
-  }
-    
-  switch(state){
-    case DEMO_ST_START_DISCOVERY:
-        digitalWrite(LED1_PIN, HIGH);
-        delay(500);
-        digitalWrite(LED1_PIN, LOW);
-        delay(500);
 
-        rfal_nfc.rfalNfcDeactivate( false );
-        rfal_nfc.rfalNfcDiscover( &(rfal_nfc.discParam) );
-          
-        state = DEMO_ST_DISCOVERY;
-        break;
-        
-    case DEMO_ST_DISCOVERY:
-        digitalWrite(LED2_PIN, HIGH);
-        delay(500);
-        digitalWrite(LED2_PIN, LOW);
-        delay(500);
-        
-        if( rfalNfcIsDevActivated(rfal_nfc.rfalNfcGetState()) )
+        if( ndefDemoFeature != NDEF_DEMO_READ )
         {
+            timer = rfst25r3911b.timerCalculateTimer(NDEF_WRITE_FORMAT_TIMEOUT);
+            timerLed = rfst25r3911b.timerCalculateTimer(NDEF_LED_BLINK_DURATION);
+        }
+    }
+}
+
+/*!
+ *****************************************************************************
+ * \brief Show usage
+ *
+ *  This function displays usage information
+ *****************************************************************************
+ */
+static void ndefShowDemoUsage()
+{
+    uint32_t i;
+    
+    Serial.print("Use the User button to cycle among the different modes:\r\n");
+    for (i = 0; i < SIZEOF_ARRAY(ndefDemoFeatureDescription); i++)
+    {
+        Serial.print((char *)ndefDemoFeatureDescription[i]);
+        Serial.print("\r\n");
+    }
+    Serial.print("In Write or Format mode (menu 2, 3 or 4), the demo returns to Read mode (menu 1) if no tag detected after ");
+    Serial.print((NDEF_WRITE_FORMAT_TIMEOUT/1000));
+    Serial.print(" seconds\r\n\n");
+}
+
+void setup() {
+  Serial.begin(115200);
+  dev_spi.begin();
+
+  pinMode(LED_A_PIN, OUTPUT);
+  pinMode(LED_B_PIN, OUTPUT);
+  pinMode(LED_F_PIN, OUTPUT);
+  pinMode(LED_V_PIN, OUTPUT);
+  pinMode(LED_AP2P_PIN, OUTPUT);
+  pinMode(LED_FIELD_PIN, OUTPUT);
+  pinMode(IRQ_PIN, INPUT);
+  pinMode(USER_BTN, INPUT);
+
+  /* Check what is the Push Button State when the button is not pressed. It can change across families */
+  PushButtonState = (digitalRead(USER_BTN)) ?  0 : 1;
+  
+  attachInterrupt(IRQ_PIN,IRQCallback,RISING);
+
+  Serial.println("Welcome to X-NUCLEO-NFC05A1");
+
+  ndefShowDemoUsage();
+
+  if( rfal_nfc.rfalNfcInitialize() == ERR_NONE ) {
+    discParam.compMode      = RFAL_COMPLIANCE_MODE_NFC;
+    discParam.devLimit      = 1U;
+    discParam.nfcfBR        = RFAL_BR_212;
+    discParam.ap2pBR        = RFAL_BR_424;
+
+    ST_MEMCPY( &discParam.nfcid3, NFCID3, sizeof(NFCID3) );
+    ST_MEMCPY( &discParam.GB, GB, sizeof(GB) );
+    discParam.GBLen         = sizeof(GB);
+
+    discParam.notifyCb             = NULL;
+    discParam.totalDuration        = 1000U;
+    discParam.wakeupEnabled        = false;
+    discParam.wakeupConfigDefault  = true;
+    discParam.techs2Find           = ( RFAL_NFC_POLL_TECH_A | RFAL_NFC_POLL_TECH_B | RFAL_NFC_POLL_TECH_F | RFAL_NFC_POLL_TECH_V | RFAL_NFC_POLL_TECH_ST25TB );
+    discParam.techs2Find   |= RFAL_NFC_POLL_TECH_AP2P;
+
+    state = DEMO_ST_START_DISCOVERY;
+  }
+}
+
+void loop() {
+    static rfalNfcDevice *nfcDevice;
+
+    rfalNfcaSensRes       sensRes;
+    rfalNfcaSelRes        selRes;
+    
+    rfalNfcbSensbRes      sensbRes;
+    uint8_t               sensbResLen;
+    
+    uint8_t               devCnt = 0;
+    rfalFeliCaPollRes     cardList[1];
+    uint8_t               collisions = 0U;
+    rfalNfcfSensfRes*     sensfRes;
+
+    rfalNfcvInventoryRes  invRes;
+    uint16_t              rcvdLen;
+    
+    rfal_nfc.rfalNfcWorker();                                    /* Run RFAL worker periodically */
+
+    if( (ndefDemoFeature != NDEF_DEMO_READ) && (rfst25r3911b.timerIsExpired(timer)) )
+    {
+        Serial.print("Timer expired, back to Read mode...\r\n");
+        ndefDemoFeature = NDEF_DEMO_READ;
+    }
+    
+    if( ndefDemoFeature != ndefDemoPrevFeature )
+    {
+        ndefDemoPrevFeature = ndefDemoFeature;
+        Serial.print((char *)ndefDemoFeatureDescription[ndefDemoFeature]);
+        Serial.print("\r\n");
+    }
+    
+    if( ndefDemoFeature != NDEF_DEMO_READ )
+    {
+        if( rfst25r3911b.timerIsExpired(timerLed) )
+        {
+            timerLed = rfst25r3911b.timerCalculateTimer(NDEF_LED_BLINK_DURATION);
+            ledOn = !ledOn;
+        }
+        if( ledOn )
+        {
+            ledsOn();
+        }
+        else
+        {
+            ledsOff();
+        }
+    }
+    
+    checkUserButton();
+
+    switch( state )
+    {
+        /*******************************************************************************/
+        case DEMO_ST_START_DISCOVERY:
+            ledsOff();
+    
+            rfal_nfc.rfalNfcDeactivate( false );
+            rfal_nfc.rfalNfcDiscover( &discParam );
+
+            state = DEMO_ST_DISCOVERY;
+            break;
+
+        /*******************************************************************************/
+        case DEMO_ST_DISCOVERY:
+            if( rfalNfcIsDevActivated( rfal_nfc.rfalNfcGetState() ) )
+            {
                 rfal_nfc.rfalNfcGetActiveDevice( &nfcDevice );
                 
+                ledsOff();
+                delay(50);
+                ndefDemoPrevFeature = 0xFF; /* Force the display of the prompt */
                 switch( nfcDevice->type )
                 {
                     /*******************************************************************************/
-                    case RFAL_NFC_LISTEN_TYPE_NFCA:                    
-                        
-                        //platformLedOn(PLATFORM_LED_A_PORT, PLATFORM_LED_A_PIN);
-                        digitalWrite(LED1_PIN,HIGH);
-                        
+                    case RFAL_NFC_LISTEN_TYPE_NFCA:
+                    
+                        digitalWrite(LED_A_PIN, HIGH);
                         switch( nfcDevice->dev.nfca.type )
                         {
                             case RFAL_NFCA_T1T:
-                                
                                 Serial.print("ISO14443A/Topaz (NFC-A T1T) TAG found. UID: ");
-                                Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ) );
-                                Serial.println("\r\n"); 
+                                Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ));
+                                Serial.print("\r\n");
+                                rfal_nfc.rfalNfcaPollerSleep();
                                 break;
                             
                             case RFAL_NFCA_T4T:
-                                Serial.print("ISO14443A/Topaz (NFC-A T1T) TAG found. UID: ");
-                                Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ) );
-                                Serial.println("\r\n"); 
-                                demoAPDU();
+                                Serial.print("NFCA Passive ISO-DEP device found. UID: ");
+                                Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ));
+                                Serial.print("\r\n");
+                                demoNdef(nfcDevice);
+                                rfal_nfc.rfalIsoDepDeselect(); 
                                 break;
                             
                             case RFAL_NFCA_T4T_NFCDEP:
                             case RFAL_NFCA_NFCDEP:
                                 Serial.print("NFCA Passive P2P device found. NFCID: ");
-                                Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ) );
-                                Serial.println("\r\n"); 
-                                demoP2P();    
+                                Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ));
+                                Serial.print("\r\n");
+                                demoP2P();
                                 break;
                                 
                             default:
-                                Serial.print("SO14443A/NFC-A card found. UID: ");
-                                Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ) );
-                                Serial.println("\r\n"); 
+                                Serial.print("ISO14443A/NFC-A card found. UID: ");
+                                Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ));
+                                Serial.print("\r\n");
+                                demoNdef(nfcDevice);
+                                rfal_nfc.rfalNfcaPollerSleep();
                                 break;
                         }
+                        /* Loop until tag is removed from the field */
+                        Serial.print("Operation completed\r\nTag can be removed from the field\r\n");
+                        rfal_nfc.rfalNfcaPollerInitialize();
+                        while( rfal_nfc.rfalNfcaPollerCheckPresence(RFAL_14443A_SHORTFRAME_CMD_WUPA, &sensRes) == ERR_NONE )
+                        {
+                            if( ((nfcDevice->dev.nfca.type == RFAL_NFCA_T1T) && (!rfalNfcaIsSensResT1T(&sensRes ))) ||
+                                ((nfcDevice->dev.nfca.type != RFAL_NFCA_T1T) && (rfal_nfc.rfalNfcaPollerSelect(nfcDevice->dev.nfca.nfcId1, nfcDevice->dev.nfca.nfcId1Len, &selRes) != ERR_NONE)) )
+                            {
+                                break;
+                            }
+                            rfal_nfc.rfalNfcaPollerSleep();
+                            delay(130);
+                        }
                         break;
-                        /*******************************************************************************/
+                    
+                    /*******************************************************************************/
                     case RFAL_NFC_LISTEN_TYPE_NFCB:
                         
                         Serial.print("ISO14443B/NFC-B card found. UID: ");
-                        Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ) );
+                        Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ));
                         Serial.print("\r\n");
-
-                        /* platformLedOn(PLATFORM_LED_B_PORT, PLATFORM_LED_B_PIN); */
-                        digitalWrite(LED2_PIN,HIGH);
-                        
+                        digitalWrite(LED_B_PIN, HIGH);
                     
-                        if(rfalNfcbIsIsoDepSupported( &nfcDevice->dev.nfcb ) )
+                        if( rfalNfcbIsIsoDepSupported( &nfcDevice->dev.nfcb ) )
                         {
-                            demoAPDU();
+                            demoNdef(nfcDevice);
+                            rfal_nfc.rfalIsoDepDeselect();
+                        }
+                        else
+                        {
+                            rfal_nfc.rfalNfcbPollerSleep(nfcDevice->dev.nfcb.sensbRes.nfcid0);
+                        }
+                        /* Loop until tag is removed from the field */
+                        Serial.print("Operation completed\r\nTag can be removed from the field\r\n");
+                        rfal_nfc.rfalNfcbPollerInitialize();
+                        while( rfal_nfc.rfalNfcbPollerCheckPresence(RFAL_NFCB_SENS_CMD_ALLB_REQ, RFAL_NFCB_SLOT_NUM_1, &sensbRes, &sensbResLen) == ERR_NONE )
+                        {
+                            if( ST_BYTECMP(sensbRes.nfcid0, nfcDevice->dev.nfcb.sensbRes.nfcid0, RFAL_NFCB_NFCID0_LEN) != 0 )
+                            {
+                                break;
+                            }
+                            rfal_nfc.rfalNfcbPollerSleep(nfcDevice->dev.nfcb.sensbRes.nfcid0);
+                            delay(130);
                         }
                         break;
                         
                     /*******************************************************************************/
                     case RFAL_NFC_LISTEN_TYPE_NFCF:
                         
-                        if(rfalNfcfIsNfcDepSupported( &nfcDevice->dev.nfcf ) )
+                        if( rfalNfcfIsNfcDepSupported( &nfcDevice->dev.nfcf ) )
                         {
                             Serial.print("NFCF Passive P2P device found. NFCID: ");
-                            Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ) );
-                            Serial.print("\r\n"); 
-                            demoP2P(); 
+                            Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ));
+                            Serial.print("\r\n");
+                            demoP2P();
                         }
                         else
                         {
                             Serial.print("Felica/NFC-F card found. UID: ");
                             Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ));
-                            Serial.print("\r\n"); 
-                            
-                            demoNfcf( &nfcDevice->dev.nfcf );
+                            Serial.print("\r\n");
+                            demoNdef(nfcDevice);
                         }
                         
-                        /*platformLedOn(PLATFORM_LED_F_PORT, PLATFORM_LED_F_PIN);*/
-                        digitalWrite(LED3_PIN,HIGH);
+                        digitalWrite(LED_F_PIN, HIGH);
+                        /* Loop until tag is removed from the field */
+                        Serial.print("Operation completed\r\nTag can be removed from the field\r\n");
+                        devCnt = 1;
+                        rfal_nfc.rfalNfcfPollerInitialize( RFAL_BR_212 );
+                        while (rfal_nfc.rfalNfcfPollerPoll( RFAL_FELICA_1_SLOT, RFAL_NFCF_SYSTEMCODE, RFAL_FELICA_POLL_RC_NO_REQUEST, cardList, &devCnt, &collisions ) == ERR_NONE)
+                        {
+                            /* Skip the length field byte */
+                            sensfRes = (rfalNfcfSensfRes*)&((uint8_t *)cardList)[1];
+                            if( ST_BYTECMP(sensfRes->NFCID2, nfcDevice->dev.nfcf.sensfRes.NFCID2, RFAL_NFCF_NFCID2_LEN) != 0 )
+                            {
+                                break;
+                            }
+                            delay(130);
+                        }
                         break;
                     
                     /*******************************************************************************/
@@ -251,16 +521,23 @@ void demoCycle(){
                         {
                             uint8_t devUID[RFAL_NFCV_UID_LEN];
                             
-                            memcpy( devUID, nfcDevice->nfcid, nfcDevice->nfcidLen );   /* Copy the UID into local var */
+                            ST_MEMCPY( devUID, nfcDevice->nfcid, nfcDevice->nfcidLen );   /* Copy the UID into local var */
                             REVERSE_BYTES( devUID, RFAL_NFCV_UID_LEN );                 /* Reverse the UID for display purposes */
                             Serial.print("ISO15693/NFC-V card found. UID: ");
                             Serial.print(hex2Str(devUID, RFAL_NFCV_UID_LEN));
                             Serial.print("\r\n");
                         
-                            /*platformLedOn(PLATFORM_LED_V_PORT, PLATFORM_LED_V_PIN);*/
-                            digitalWrite(LED4_PIN,HIGH);
+                            digitalWrite(LED_V_PIN, HIGH);
                             
-                            demoNfcv( &nfcDevice->dev.nfcv );
+                            demoNdef(nfcDevice);
+
+                            /* Loop until tag is removed from the field */
+                            Serial.print("Operation completed\r\nTag can be removed from the field\r\n");
+                            rfal_nfc.rfalNfcvPollerInitialize();
+                            while (rfal_nfc.rfalNfcvPollerInventory( RFAL_NFCV_NUM_SLOTS_1, RFAL_NFCV_UID_LEN * 8U, nfcDevice->dev.nfcv.InvRes.UID, &invRes, &rcvdLen) == ERR_NONE)
+                            {
+                                delay(130);
+                            }
                         }
                         break;
                         
@@ -270,9 +547,7 @@ void demoCycle(){
                         Serial.print("ST25TB card found. UID: ");
                         Serial.print(hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ));
                         Serial.print("\r\n");
-                         
-                        /*platformLedOn(PLATFORM_LED_B_PORT, PLATFORM_LED_B_PIN);*/
-                        digitalWrite(LED5_PIN,HIGH);
+                        digitalWrite(LED_B_PIN, HIGH);
                         break;
                     
                     /*******************************************************************************/
@@ -280,27 +555,10 @@ void demoCycle(){
                         
                         Serial.print("NFC Active P2P device found. NFCID3: ");
                         Serial.print(hex2Str(nfcDevice->nfcid, nfcDevice->nfcidLen));
-                        Serial.print("\r\n"); 
-                        
-                        /*platformLedOn(PLATFORM_LED_AP2P_PORT, PLATFORM_LED_AP2P_PIN);*/
-                        digitalWrite(LED6_PIN,HIGH);
+                        Serial.print("\r\n");
+                        digitalWrite(LED_AP2P_PIN, HIGH);
                     
                         demoP2P();
-                        break;
-                    
-                    /*******************************************************************************/
-                    case RFAL_NFC_POLL_TYPE_NFCA:
-                    case RFAL_NFC_POLL_TYPE_NFCF:
-                        
-                        Serial.print("Activated in CE ");
-                        Serial.print((nfcDevice->type == RFAL_NFC_POLL_TYPE_NFCA) ? "NFC-A" : "NFC-F");
-                        Serial.print(" mode.\r\n");
-
-                         /*
-                        platformLedOn((nfcDevice->type == RFAL_NFC_POLL_TYPE_NFCA)  ? PLATFORM_LED_A_PORT : PLATFORM_LED_F_PORT), 
-                                       ((nfcDevice->type == RFAL_NFC_POLL_TYPE_NFCA) ? PLATFORM_LED_A_PIN  : PLATFORM_LED_F_PIN)  );*/ 
-                                                        
-                        //demoCE( nfcDevice );
                         break;
                     
                     /*******************************************************************************/
@@ -308,115 +566,85 @@ void demoCycle(){
                         break;
                 }
                 
-                //rfalNfcDeactivate( false );
+                rfal_nfc.rfalNfcDeactivate( false );
                 delay( 500 );
                 state = DEMO_ST_START_DISCOVERY;
             }
             break;
-   }
-}
 
-void demoNotif( rfalNfcState st )
-{
-    uint8_t       devCnt;
-    rfalNfcDevice *dev;
-    
-    
-    if( st == RFAL_NFC_STATE_WAKEUP_MODE )
-    {
-        Serial.println("Wake Up mode started \r\n");
-    }
-    else if( st == RFAL_NFC_STATE_POLL_TECHDETECT )
-    {
-        Serial.println("Wake Up mode terminated. Polling for devices \r\n");
-    }
-    else if( st == RFAL_NFC_STATE_POLL_SELECT )
-    {
-        /* Multiple devices were found, activate first of them */
-        rfal_nfc.rfalNfcGetDevicesFound( &dev, &devCnt );
-        rfal_nfc.rfalNfcSelect( 0 );
-        
-        Serial.println("Multiple Tags detected: ");
-        Serial.println(devCnt);
-        Serial.println("\r\n");
+        /*******************************************************************************/
+        case DEMO_ST_NOTINIT:
+        default:
+            break;
     }
 }
 
-void LEDCycle()
-{
-  digitalWrite(LED1_PIN, HIGH);
-  delay(500);
-  digitalWrite(LED2_PIN, HIGH);
-  digitalWrite(LED1_PIN, LOW);
-  delay(500);
-  digitalWrite(LED3_PIN, HIGH);
-  digitalWrite(LED2_PIN, LOW);
-  delay(500);
-  digitalWrite(LED4_PIN, HIGH);
-  digitalWrite(LED3_PIN, LOW);
-  delay(500);
-  digitalWrite(LED5_PIN, HIGH);
-  digitalWrite(LED4_PIN, LOW);
-  delay(500);
-  digitalWrite(LED5_PIN, LOW);
-  delay(500);
-}
 
-void demoAPDU( void )
-{
-    ReturnCode err;
-    uint16_t   *rxLen;
-    uint8_t    *rxData;
-
-
-    /* Exchange APDU: NDEF Tag Application Select command */
-    err = demoTransceiveBlocking( ndefSelectApp, sizeof(ndefSelectApp), &rxData, &rxLen, RFAL_FWT_NONE );
-    Serial.print(" Select NDEF Application: ");
-    Serial.print((err != ERR_NONE) ? "FAIL": "OK");
-    Serial.print(" Data: ");
-    Serial.print(hex2Str( rxData, *rxLen) );
-    Serial.println("\r\n"); 
-
-    if( (err == ERR_NONE) && rxData[0] == 0x90 && rxData[1] == 0x00)
-    {
-        /* Exchange APDU: Select Capability Container File */
-        err = demoTransceiveBlocking( ccSelectFile, sizeof(ccSelectFile), &rxData, &rxLen, RFAL_FWT_NONE );
-        Serial.print(" Select CC: ");
-        Serial.print((err != ERR_NONE) ? "FAIL": "OK");
-        Serial.print(" Data: ");
-        Serial.print(hex2Str( rxData, *rxLen) );
-        Serial.println("\r\n"); 
-
-        /* Exchange APDU: Read Capability Container File  */
-        err = demoTransceiveBlocking( readBynary, sizeof(readBynary), &rxData, &rxLen, RFAL_FWT_NONE );
-        Serial.print(" Read CC: ");
-        Serial.print((err != ERR_NONE) ? "FAIL": "OK"); 
-        Serial.print(" Data: ");
-        Serial.print(hex2Str( rxData, *rxLen) );
-        Serial.println("\r\n"); 
-    }
-}
-
-void demoP2P()
+/*!
+ *****************************************************************************
+ * \brief Demo P2P Exchange
+ *
+ * Sends a NDEF URI record 'http://www.ST.com' via NFC-DEP (P2P) protocol.
+ * 
+ * This method sends a set of static predefined frames which tries to establish
+ * a LLCP connection, followed by the NDEF record, and then keeps sending 
+ * LLCP SYMM packets to maintain the connection.
+ * 
+ * 
+ *****************************************************************************
+ */
+void demoP2P( void )
 {
     uint16_t   *rxLen;
     uint8_t    *rxData;
     ReturnCode err;
+
+    ndefBuffer  bufPayload;
+    ndefMessage message;
+    ndefRecord  record;
+    ndefType    uri;
 
     Serial.print(" Initalize device .. ");
     err = demoTransceiveBlocking( ndefInit, sizeof(ndefInit), &rxData, &rxLen, RFAL_FWT_NONE);
     if( err != ERR_NONE )
     {
-        Serial.println("failed.");
+        Serial.print("failed.");
         return;
     }
     Serial.print("succeeded.\r\n");
+    
+    err  = ndef.ndefRtdUri(&uri, NDEF_URI_PREFIX_HTTP_WWW, &bufURL);
+    err |= ndef.ndefRtdUriToRecord(&uri, &record);
 
-    Serial.print(" Push NDEF Uri: www.ST.com .. ");
-    err = demoTransceiveBlocking( ndefUriSTcom, sizeof(ndefUriSTcom), &rxData, &rxLen, RFAL_FWT_NONE);
+    err |= ndef.ndefMessageInit(&message);
+    err |= ndef.ndefMessageAppend(&message, &record);  /* To get MB and ME bits set */
+
+    /* Build the SNEP buffer made of the prefix, the length byte and the record */
+    ST_MEMCPY(ndefUriBuffer, ndefSnepPrefix, sizeof(ndefSnepPrefix));
+
+    /* Skip 1 byte for length byte */
+    bufPayload.buffer = ndefUriBuffer + sizeof(ndefSnepPrefix) + 1;
+    bufPayload.length = sizeof(ndefUriBuffer) - sizeof(ndefSnepPrefix);
+    err |= ndef.ndefMessageEncode(&message, &bufPayload);
+
+    ndefUriBuffer[sizeof(ndefSnepPrefix)] = bufPayload.length;
+
+    bufPayload.buffer = ndefUriBuffer;
+    bufPayload.length = sizeof(ndefSnepPrefix) + 1 + bufPayload.length;
+
     if( err != ERR_NONE )
     {
-        Serial.println("failed.");
+        Serial.print("NDEF message creation failed\r\n");
+        return;
+    }
+
+    ndefBufferDump("URL converted to SNEP:\r\n", (ndefConstBuffer*)&bufPayload, true);
+
+    Serial.print(" Push NDEF Uri: www.ST.com .. ");
+    err = demoTransceiveBlocking(bufPayload.buffer, bufPayload.length, &rxData, &rxLen, RFAL_FWT_NONE);
+    if( err != ERR_NONE )
+    {
+        Serial.print("failed.");
         return;
     }
     Serial.print("succeeded.\r\n");
@@ -426,152 +654,40 @@ void demoP2P()
     while(err == ERR_NONE) 
     {
         err = demoTransceiveBlocking( ndefLLCPSYMM, sizeof(ndefLLCPSYMM), &rxData, &rxLen, RFAL_FWT_NONE);
-        Serial.println(".");
+        Serial.print(".");
         delay(50);
     }
     Serial.print("\r\n Device removed.\r\n");
 }
 
-void demoNfcf( rfalNfcfListenDevice *nfcfDev )
-{
-    ReturnCode                 err;
-    uint8_t                    buf[ (RFAL_NFCF_NFCID2_LEN + RFAL_NFCF_CMD_LEN + (3*RFAL_NFCF_BLOCK_LEN)) ];
-    uint16_t                   rcvLen;
-    rfalNfcfServ               srv = RFAL_NFCF_SERVICECODE_RDWR;
-    rfalNfcfBlockListElem      bl[3];
-    rfalNfcfServBlockListParam servBlock;
-    //uint8_t                    wrData[] = { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF };
-    
-    servBlock.numServ   = 1;                            /* Only one Service to be used           */
-    servBlock.servList  = &srv;                         /* Service Code: NDEF is Read/Writeable  */
-    servBlock.numBlock  = 1;                            /* Only one block to be used             */
-    servBlock.blockList = bl;
-    bl[0].conf     = RFAL_NFCF_BLOCKLISTELEM_LEN;       /* Two-byte Block List Element           */     
-    bl[0].blockNum = 0x0001;                            /* Block: NDEF Data                      */
-    
-    /*
-     * TO IMPLEMENT
-     *err = rfalNfcfPollerCheck( nfcfDev->sensfRes.NFCID2, &servBlock, buf, sizeof(buf), &rcvLen);
-     */
-    Serial.print(" Check Block: ");
-    Serial.print((err != ERR_NONE) ? "FAIL": "OK");
-    Serial.print(" Data:  ");
-    Serial.print((err != ERR_NONE) ? "" : hex2Str( &buf[1], RFAL_NFCF_BLOCK_LEN) );
-    Serial.print("\r\n"); 
-    
-    #if 0  /* Writing example */
-        err = rfalNfcfPollerUpdate( nfcfDev->sensfRes.NFCID2, &servBlock, buf , sizeof(buf), wrData, buf, sizeof(buf) );
-        Serial.print(" Update Block: ");
-        Serial.print((err != ERR_NONE) ? "FAIL": "OK");
-        Serial.print(" Data:  ");
-        Serial.print((err != ERR_NONE) ? "" : hex2Str( wrData, RFAL_NFCF_BLOCK_LEN) );
-        Serial.print("\r\n"); 
-        err = rfalNfcfPollerCheck( nfcfDev->sensfRes.NFCID2, &servBlock, buf, sizeof(buf), &rcvLen);
-        Serial.print(" Check Block: ");
-        Serial.print((err != ERR_NONE) ? "FAIL": "OK");
-        Serial.print(" Data:  ");
-        Serial.print((err != ERR_NONE) ? "" : hex2Str( &buf[1], RFAL_NFCF_BLOCK_LEN) );
-        Serial.print("\r\n"); 
-    #endif
-}
-
-void demoNfcv( rfalNfcvListenDevice *nfcvDev )
-{
-    ReturnCode            err;
-    uint16_t              rcvLen;
-    uint8_t               blockNum = 1;
-    uint8_t               rxBuf[ 1 + DEMO_NFCV_BLOCK_LEN + RFAL_CRC_LEN ];                        /* Flags + Block Data + CRC */
-    uint8_t *             uid; 
-    #if DEMO_NFCV_WRITE_TAG
-        uint8_t               wrData[DEMO_NFCV_BLOCK_LEN] = { 0x11, 0x22, 0x33, 0x99 };             /* Write block example */
-    #endif
-              
-
-    uid = nfcvDev->InvRes.UID;
-    
-    #if DEMO_NFCV_USE_SELECT_MODE
-        /*
-        * Activate selected state
-        */
-        /*TO IMPLEMENT
-        *     err = rfalNfcvPollerSelect(RFAL_NFCV_REQ_FLAG_DEFAULT, nfcvDev->InvRes.UID );
-        */
-        Serial.print(" Select ");
-        Serial.print( (err != ERR_NONE) ? "FAIL (revert to addressed mode)": "OK" );
-        Serial.print("\r\n");
-        
-        if( err == ERR_NONE )
-        {
-            uid = NULL;
-        }
-    #endif    
-
-    /*
-    * Read block using Read Single Block command
-    * with addressed mode (uid != NULL) or selected mode (uid == NULL)
-    */
-    
-    /*TO IMPLEMENT
-    * err = rfalNfcvPollerReadSingleBlock(RFAL_NFCV_REQ_FLAG_DEFAULT, uid, blockNum, rxBuf, sizeof(rxBuf), &rcvLen);
-    */
-    Serial.print(" Read Block: ");
-    Serial.print((err != ERR_NONE) ? "FAIL": "OK Data:");
-    Serial.print( (err != ERR_NONE) ? "" : hex2Str( &rxBuf[1], DEMO_NFCV_BLOCK_LEN));
-    Serial.print("\r\n");
-    
-    #if DEMO_NFCV_WRITE_TAG /* Writing example */
-        err = rfalNfcvPollerWriteSingleBlock(RFAL_NFCV_REQ_FLAG_DEFAULT, uid, blockNum, wrData, sizeof(wrData));
-        Serial.print(" Write Block: ");
-        Serial.print((err != ERR_NONE) ? "FAIL": "OK Data:");
-        Serial.print( hex2Str( wrData, DEMO_NFCV_BLOCK_LEN) );
-        Serial.print("\r\n");
-        err = rfalNfcvPollerReadSingleBlock(RFAL_NFCV_REQ_FLAG_DEFAULT, uid, blockNum, rxBuf, sizeof(rxBuf), &rcvLen);
-        Serial.print(" Read Block: ");
-        Serial.print((err != ERR_NONE) ? "FAIL": "OK Data:");
-        Serial.print( (err != ERR_NONE) ? "" : hex2Str( &rxBuf[1], DEMO_NFCV_BLOCK_LEN));
-        Serial.print("\r\n");
-    #endif
-}
-
-void demoCE( rfalNfcDevice *nfcDev )
-{
-#if defined(ST25R3916) && defined(RFAL_FEATURE_LISTEN_MODE)
-    
-    ReturnCode err;
-    uint8_t *rxData;
-    uint16_t *rcvLen;
-    uint8_t  txBuf[100];
-    uint16_t txLen;
-    
-    demoCeInit( ceNFCF_nfcid2 );
-    
-    do
-    {
-        rfalNfcWorker();
-        
-        switch( rfalNfcGetState() )
-        {
-            case RFAL_NFC_STATE_ACTIVATED:
-                err = demoTransceiveBlocking( NULL, 0, &rxData, &rcvLen, 0);
-                break;
-            
-            case RFAL_NFC_STATE_DATAEXCHANGE:
-            case RFAL_NFC_STATE_DATAEXCHANGE_DONE:
-                
-                txLen = ( (nfcDev->type == RFAL_NFC_POLL_TYPE_NFCA) ? demoCeT4T( rxData, *rcvLen, txBuf, sizeof(txBuf) ): demoCeT3T( rxData, *rcvLen, txBuf, sizeof(txBuf) ) );
-                err   = demoTransceiveBlocking( txBuf, txLen, &rxData, &rcvLen, RFAL_FWT_NONE );
-                break;
-            
-            case RFAL_NFC_STATE_LISTEN_SLEEP:
-            default:
-                break;
-        }
-    }
-    while( (err == ERR_NONE) || (err == ERR_SLEEP_REQ) );
-    
-#endif /* RFAL_FEATURE_LISTEN_MODE */
-}
-
+/*!
+ *****************************************************************************
+ * \brief Demo Blocking Transceive 
+ *
+ * Helper function to send data in a blocking manner via the rfalNfc module 
+ *  
+ * \warning A protocol transceive handles long timeouts (several seconds), 
+ * transmission errors and retransmissions which may lead to a long period of 
+ * time where the MCU/CPU is blocked in this method.
+ * This is a demo implementation, for a non-blocking usage example please 
+ * refer to the Examples available with RFAL
+ *
+ * \param[in]  txBuf      : data to be transmitted
+ * \param[in]  txBufSize  : size of the data to be transmited
+ * \param[out] rxData     : location where the received data has been placed
+ * \param[out] rcvLen     : number of data bytes received
+ * \param[in]  fwt        : FWT to be used (only for RF frame interface, 
+ *                                          otherwise use RFAL_FWT_NONE)
+ *
+ * 
+ *  \return ERR_PARAM     : Invalid parameters
+ *  \return ERR_TIMEOUT   : Timeout error
+ *  \return ERR_FRAMING   : Framing error detected
+ *  \return ERR_PROTO     : Protocol error detected
+ *  \return ERR_NONE      : No error, activation successful
+ * 
+ *****************************************************************************
+ */
 ReturnCode demoTransceiveBlocking( uint8_t *txBuf, uint16_t txBufSize, uint8_t **rxData, uint16_t **rcvLen, uint32_t fwt )
 {
     ReturnCode err;
@@ -588,44 +704,1236 @@ ReturnCode demoTransceiveBlocking( uint8_t *txBuf, uint16_t txBufSize, uint8_t *
     return err;
 }
 
+static void demoNdef(rfalNfcDevice *pNfcDevice)
+{
+    ReturnCode       err;
+    ndefMessage      message;
+    uint32_t         rawMessageLen;
+    ndefInfo         info;
+    ndefBuffer       bufRawMessage;
+    ndefConstBuffer  bufConstRawMessage;
+ 
+    ndefRecord       record1;
+    ndefRecord       record2;
+
+    ndefType         text;
+    ndefType         uri;
+    ndefType         aar;
+
+    ndefConstBuffer8 bufTextLangCode;
+    ndefConstBuffer bufTextLangText;
+    ndefConstBuffer bufUri;
+    ndefConstBuffer bufAndroidPackName;
+
+
+    /*
+     * Perform NDEF Context Initialization
+     */
+    err = ndef.ndefPollerContextInitialization(pNfcDevice);
+    if( err != ERR_NONE )
+    {
+        Serial.print("NDEF NOT DETECTED (ndefPollerContextInitialization returns ");
+        Serial.print(err);
+        Serial.print(")\r\n");
+        return;
+    }
+    
+    if( verbose & (pNfcDevice->type == RFAL_NFC_LISTEN_TYPE_NFCV) )
+    {
+        ndefDumpSysInfo();
+    }
+
+    /*
+     * Perform NDEF Detect procedure
+     */
+    err = ndef.ndefPollerNdefDetect(&info);
+    if( err != ERR_NONE )
+    {
+        Serial.print("NDEF NOT DETECTED (ndefPollerNdefDetect returns ");
+        Serial.print(err);
+        Serial.print(")\r\n");
+        if( ndefDemoFeature != NDEF_DEMO_FORMAT_TAG)
+        {
+            return;
+        }
+    }
+    else
+    {
+        Serial.print((char *)ndefStates[info.state]);
+        Serial.print(" NDEF detected.\r\n");
+        ndefCCDump();
+
+        if( verbose )
+        {
+            Serial.print("NDEF Len: ");
+            Serial.print(ndef.messageLen);
+            Serial.print(", Offset=");
+            Serial.print(ndef.messageOffset);
+            Serial.print("\r\n");
+        }
+    }
+
+    switch( ndefDemoFeature )
+    {
+        /*
+         * Demonstrate how to read the NDEF message from the Tag
+         */
+        case NDEF_DEMO_READ:
+            if( info.state == NDEF_STATE_INITIALIZED )
+            {
+                /* Nothing to read... */
+                return;
+            }
+            err = ndef.ndefPollerReadRawMessage(rawMessageBuf, sizeof(rawMessageBuf), &rawMessageLen);
+            if( err != ERR_NONE )
+            {
+                Serial.print("NDEF message cannot be read (ndefPollerReadRawMessage returns ");
+                Serial.print(err);
+                Serial.print(")\r\n");
+                return;
+            }
+            if( verbose )
+            {
+                bufRawMessage.buffer = rawMessageBuf;
+                bufRawMessage.length = rawMessageLen;
+                ndefBufferDump(" NDEF Content", (ndefConstBuffer*)&bufRawMessage, verbose);
+            }
+            bufConstRawMessage.buffer = rawMessageBuf;
+            bufConstRawMessage.length = rawMessageLen;
+            err = ndef.ndefMessageDecode(&bufConstRawMessage, &message);
+            if( err != ERR_NONE )
+            {
+                Serial.print("NDEF message cannot be decoded (ndefMessageDecode  returns ");
+                Serial.print(err);
+                Serial.print(")\r\n");
+                return;
+            }
+            err = ndefMessageDump(&message, verbose);
+            if( err != ERR_NONE )
+            {
+                Serial.print("NDEF message cannot be displayed (ndefMessageDump returns ");
+                Serial.print(err);
+                Serial.print(")\r\n");
+                return;
+            }
+            break;
+
+        /*
+         * Demonstrate how to encode a text record and write the message to the tag
+         */
+        case NDEF_DEMO_WRITE_MSG1:
+            ndefDemoFeature = NDEF_DEMO_READ; /* returns to READ mode after write */
+            err  = ndef.ndefMessageInit(&message); /* Initialize message structure */
+            bufTextLangCode.buffer = ndefTextLangCode;
+            bufTextLangCode.length = strlen((char *)ndefTextLangCode);
+
+            bufTextLangText.buffer = ndefTEXT;
+            bufTextLangText.length = strlen((char *)ndefTEXT);
+
+            err |= ndef.ndefRtdText(&text, TEXT_ENCODING_UTF8, &bufTextLangCode, &bufTextLangText); /* Initialize Text type structure */
+            err |= ndef.ndefRtdTextToRecord(&text, &record1); /* Encode Text Record */
+            err |= ndef.ndefMessageAppend(&message, &record1); /* Append Text record to message */
+            if( err != ERR_NONE )
+            {
+                Serial.print("Message creation failed\r\n");
+                return;
+            }
+            err = ndef.ndefPollerWriteMessage(&message); /* Write message */
+            if( err != ERR_NONE )
+            {
+                Serial.print("Message cannot be written (ndefPollerWriteMessage return ");
+                Serial.print(err);
+                Serial.print(")\r\n");
+                return;
+            }
+            Serial.print("Wrote 1 record to the Tag\r\n");
+            if( verbose )
+            {
+                /* Dump raw message */
+                bufRawMessage.buffer = rawMessageBuf;
+                bufRawMessage.length = sizeof(rawMessageBuf);
+                err = ndef.ndefMessageEncode(&message, &bufRawMessage);
+                if( err == ERR_NONE )
+                {
+                    ndefBufferDump("Raw message", (ndefConstBuffer*)&bufRawMessage, verbose);
+                }
+            }
+            LedNotificationWriteDone();
+            break;
+
+        /*
+         * Demonstrate how to encode a URI record and a AAR record, how to encode the message to a raw buffer and then how to write the raw buffer
+         */
+        case NDEF_DEMO_WRITE_MSG2:
+            ndefDemoFeature = NDEF_DEMO_READ;  /* returns to READ mode after write */
+            err  = ndef.ndefMessageInit(&message);  /* Initialize message structure */
+            bufUri.buffer = ndefURI;
+            bufUri.length = strlen((char *)ndefURI);
+            err |= ndef.ndefRtdUri(&uri, NDEF_URI_PREFIX_HTTP_WWW, &bufUri); /* Initialize URI type structure */
+            err |= ndef.ndefRtdUriToRecord(&uri, &record1); /* Encode URI Record */
+
+            bufAndroidPackName.buffer = ndefAndroidPackName;
+            bufAndroidPackName.length = sizeof(ndefAndroidPackName) - 1U;
+            err |= ndef.ndefRtdAar(&aar, &bufAndroidPackName); /* Initialize AAR type structure */
+            err |= ndef.ndefRtdAarToRecord(&aar, &record2); /* Encode AAR record */
+
+            err |= ndef.ndefMessageAppend(&message, &record1); /* Append URI to message */
+            err |= ndef.ndefMessageAppend(&message, &record2); /* Append AAR to message (record #2 is an example of preformatted record) */
+
+            bufRawMessage.buffer = rawMessageBuf;
+            bufRawMessage.length = sizeof(rawMessageBuf);
+            err |= ndef.ndefMessageEncode(&message, &bufRawMessage); /* Encode the message to the raw buffer */
+            if( err != ERR_NONE )
+            {
+                Serial.print("Raw message creation failed\r\n");
+                return;
+            }
+            err = ndef.ndefPollerWriteRawMessage(bufRawMessage.buffer, bufRawMessage.length);
+            if( err != ERR_NONE )
+            {
+                Serial.print("Message cannot be written (ndefPollerWriteRawMessage return ");
+                Serial.print(err);
+                Serial.print(")\r\n");
+                return;
+            }
+            Serial.print("Wrote 2 records to the Tag\r\n");
+            if( verbose )
+            {
+                /* Dump raw message */
+                ndefBufferDump("Raw message", (ndefConstBuffer*)&bufRawMessage, verbose);
+            }
+            LedNotificationWriteDone();
+            break;
+
+        /*
+         * Demonstrate how to format a Tag
+         */
+        case NDEF_DEMO_FORMAT_TAG:
+            ndefDemoFeature = NDEF_DEMO_READ;
+            if( !ndefIsSTTag() )
+            {
+                Serial.print("Manufacturer ID not found or not an ST tag. Format aborted \r\n");
+                return;
+            }
+            Serial.print("Formatting Tag...\r\n");
+            /* Format Tag */
+            err = ndef.ndefPollerTagFormat(NULL, 0);
+            if( err != ERR_NONE )
+            {
+                Serial.print("Tag cannot be formatted (ndefPollerTagFormat returns ");
+                Serial.print(err);
+                Serial.print(")\r\n");
+                return;
+            }
+            Serial.print("Tag formatted\r\n");
+            LedNotificationWriteDone();
+            break;
+
+        default:
+            ndefDemoFeature = NDEF_DEMO_READ;
+            break;     
+    }
+    return;
+}
+
+static void ndefT2TCCDump()
+{
+    ndefConstBuffer bufCcBuf;
+
+    Serial.print(" * Magic: ");
+    Serial.print(ndef.cc.t2t.magicNumber, HEX);
+    Serial.print("h Version: ");
+    Serial.print(ndef.cc.t2t.majorVersion);
+    Serial.print(".");
+    Serial.print(ndef.cc.t2t.minorVersion);
+    Serial.print(" Size: ");
+    Serial.print(ndef.cc.t2t.size);
+    Serial.print(" (");
+    Serial.print((ndef.cc.t2t.size * 8U));
+    Serial.print(" bytes) \r\n * readAccess: ");
+    Serial.print(ndef.cc.t2t.readAccess, HEX);
+    Serial.print("h writeAccess: ");
+    Serial.print(ndef.cc.t2t.writeAccess, HEX);
+    Serial.print("h \r\n");
+    bufCcBuf.buffer = ndef.ccBuf;
+    bufCcBuf.length = 4;
+    ndefBufferDump(" CC Raw Data", &bufCcBuf, verbose);
+  
+}
+
+static void ndefT3TAIBDump()
+{
+    ndefConstBuffer bufCcBuf;
+
+    Serial.print(" * Version: ");
+    Serial.print(ndef.cc.t3t.majorVersion);
+    Serial.print(".");
+    Serial.print(ndef.cc.t3t.minorVersion);
+    Serial.print(" Size: ");
+    Serial.print(ndef.cc.t3t.nMaxB);
+    Serial.print(" (");
+    Serial.print((ndef.cc.t3t.nMaxB * 16U));
+    Serial.print(" bytes) NbR: ");
+    Serial.print(ndef.cc.t3t.nbR);
+    Serial.print(" NbW: ");
+    Serial.print(ndef.cc.t3t.nbW);
+    Serial.print("\r\n * WriteFlag: ");
+    Serial.print(ndef.cc.t3t.writeFlag, HEX);
+    Serial.print("h RWFlag: ");
+    Serial.print(ndef.cc.t3t.rwFlag, HEX);
+    Serial.print("h \r\n");
+    bufCcBuf.buffer = ndef.ccBuf;
+    bufCcBuf.length = 16;
+    ndefBufferDump(" CC Raw Data", &bufCcBuf, verbose);
+}
+
+static void ndefT4TCCDump()
+{
+    ndefConstBuffer bufCcBuf;
+    
+    Serial.print(" * CCLEN: ");
+    Serial.print(ndef.cc.t4t.ccLen);
+    Serial.print(" T4T_VNo: ");
+    Serial.print(ndef.cc.t4t.vNo, HEX);
+    Serial.print("h MLe: ");
+    Serial.print(ndef.cc.t4t.mLe);
+    Serial.print(" MLc: ");
+    Serial.print(ndef.cc.t4t.mLc);
+    Serial.print(" FileId: ");
+    Serial.print(ndef.cc.t4t.fileId[0], HEX);
+    Serial.print(ndef.cc.t4t.fileId[1], HEX);
+    Serial.print("h FileSize: ");
+    Serial.print(ndef.cc.t4t.fileSize);
+    Serial.print("\r\n * readAccess: ");
+    Serial.print(ndef.cc.t4t.readAccess, HEX);
+    Serial.print("h writeAccess: ");
+    Serial.print(ndef.cc.t4t.writeAccess, HEX);
+    Serial.print("h\r\n");
+    bufCcBuf.buffer = ndef.ccBuf;
+    bufCcBuf.length = ndef.cc.t4t.ccLen;
+    ndefBufferDump(" CC File Raw Data", &bufCcBuf, verbose);
+}
+
+static void ndefT5TCCDump()
+{
+    ndefConstBuffer bufCcBuf;
+    
+    Serial.print(" * Block Length: ");
+    Serial.print(ndef.subCtx.t5t.blockLen);
+    Serial.print("\r\n");
+    Serial.print(" * ");
+    Serial.print(ndef.cc.t5t.ccLen);
+    Serial.print(" bytes CC\r\n * Magic: ");
+    Serial.print(ndef.cc.t5t.magicNumber, HEX);
+    Serial.print("h Version: ");
+    Serial.print(ndef.cc.t5t.majorVersion);
+    Serial.print(".");
+    Serial.print(ndef.cc.t5t.minorVersion);
+    Serial.print(" MLEN: ");
+    Serial.print(ndef.cc.t5t.memoryLen);
+    Serial.print(" (");
+    Serial.print((ndef.cc.t5t.memoryLen * 8U));
+    Serial.print(" bytes) \r\n * readAccess: ");
+    Serial.print(ndef.cc.t5t.readAccess, HEX);
+    Serial.print("h writeAccess: ");
+    Serial.print(ndef.cc.t5t.writeAccess, HEX);
+    Serial.print("h \r\n");
+    Serial.print(" * [");
+    Serial.print((ndef.cc.t5t.specialFrame ? 'X' : ' '));
+    Serial.print("] Special Frame\r\n");
+    Serial.print(" * [");
+    Serial.print((ndef.cc.t5t.multipleBlockRead ? 'X' : ' '));
+    Serial.print("] Multiple block Read\r\n");
+    Serial.print(" * [");
+    Serial.print((ndef.cc.t5t.lockBlock ? 'X' : ' '));
+    Serial.print("] Lock Block\r\n");
+    bufCcBuf.buffer = ndef.ccBuf;
+    bufCcBuf.length = ndef.cc.t5t.ccLen;
+    ndefBufferDump(" CC Raw Data", &bufCcBuf, verbose);
+}
+
+static void ndefCCDump()
+{
+    if(!verbose)
+    {
+        return;
+    }
+    Serial.print(((ndef.device.type ==  RFAL_NFC_LISTEN_TYPE_NFCF) ? "NDEF Attribute Information Block\r\n" : "NDEF Capability Container\r\n"));
+    switch( ndef.device.type )
+    {
+        case RFAL_NFC_LISTEN_TYPE_NFCA:
+            switch( ndef.device.dev.nfca.type )
+            {            
+                case RFAL_NFCA_T2T:
+                    ndefT2TCCDump();
+                    break;
+                case RFAL_NFCA_T4T:
+                    ndefT4TCCDump();
+                    break;
+                default:
+                    break;
+            }
+            break;
+        case RFAL_NFC_LISTEN_TYPE_NFCB:
+            ndefT4TCCDump();
+            break;
+        case RFAL_NFC_LISTEN_TYPE_NFCF:
+            ndefT3TAIBDump();
+            break;
+        case RFAL_NFC_LISTEN_TYPE_NFCV:
+            ndefT5TCCDump();
+            break;
+        default:
+            break;
+    }
+}
+
+static void ndefDumpSysInfo()
+{
+    ndefSystemInformation *sysInfo;
+
+    if(!verbose)
+    {
+        return;
+    }
+    
+    if( !ndef.subCtx.t5t.sysInfoSupported )
+    {
+        return;
+    }
+    
+    sysInfo = &ndef.subCtx.t5t.sysInfo;
+    Serial.print("System Information\r\n");
+    Serial.print(" * ");
+    Serial.print(ndefT5TSysInfoMOIValue(sysInfo->infoFlags) + 1);
+    Serial.print(" byte(s) memory addressing\r\n");
+    if( ndefT5TSysInfoDFSIDPresent(sysInfo->infoFlags) )
+    {
+        Serial.print(" * DFSID=");
+        Serial.print(sysInfo->DFSID, HEX);
+        Serial.print("h\r\n");
+    }
+    if( ndefT5TSysInfoAFIPresent(sysInfo->infoFlags) )
+    {
+        Serial.print(" * AFI=");
+        Serial.print(sysInfo->AFI, HEX);
+        Serial.print("h\r\n");
+    }
+    if( ndefT5TSysInfoMemSizePresent(sysInfo->infoFlags) )
+    {
+        Serial.print(" * ");
+        Serial.print(sysInfo->numberOfBlock);
+        Serial.print(" blocks, ");
+        Serial.print(sysInfo->blockSize);
+        Serial.print(" bytes per block\r\n");
+    }
+    if( ndefT5TSysInfoICRefPresent(sysInfo->infoFlags) )
+    {
+        Serial.print(" * ICRef=");
+        Serial.print(sysInfo->ICRef, HEX);
+        Serial.print("h\r\n");
+    }
+    if( ndefT5TSysInfoCmdListPresent(sysInfo->infoFlags) )
+    {
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoReadSingleBlockSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] ReadSingleBlock                \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoWriteSingleBlockSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] WriteSingleBlock               \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoLockSingleBlockSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] LockSingleBlock                \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoReadMultipleBlocksSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] ReadMultipleBlocks             \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoWriteMultipleBlocksSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] WriteMultipleBlocks            \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoSelectSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] Select                         \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoResetToReadySupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] ResetToReady                   \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoGetMultipleBlockSecStatusSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] GetMultipleBlockSecStatus      \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoWriteAFISupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] WriteAFI                       \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoLockAFISupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] LockAFI                        \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoWriteDSFIDSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] WriteDSFID                     \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoLockDSFIDSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] LockDSFID                      \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoGetSystemInformationSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] GetSystemInformation           \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoCustomCmdsSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] CustomCmds                     \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoFastReadMultipleBlocksSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] FastReadMultipleBlocks         \r\n");
+        Serial.print(" * ["); 
+        Serial.print(ndefT5TSysInfoExtReadSingleBlockSupported(sysInfo->supportedCmd) ? 'X' : ' '); 
+        Serial.print("] ExtReadSingleBlock             \r\n"); 
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoExtWriteSingleBlockSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] ExtWriteSingleBlock            \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoExtLockSingleBlockSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] ExtLockSingleBlock             \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoExtReadMultipleBlocksSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] ExtReadMultipleBlocks          \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoExtWriteMultipleBlocksSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] ExtWriteMultipleBlocks         \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoExtGetMultipleBlockSecStatusSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] ExtGetMultipleBlockSecStatus   \r\n");
+        Serial.print(" * [");
+        Serial.print(ndefT5TSysInfoFastExtendedReadMultipleBlocksSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+        Serial.print("] FastExtendedReadMultipleBlocks \r\n");
+    }
+    return;
+}
+
+static bool ndefIsSTTag()
+{
+    bool ret = false;
+
+    switch (ndef.device.type)
+    {
+        case RFAL_NFC_LISTEN_TYPE_NFCA:
+            if( (ndef.device.dev.nfca.nfcId1Len != 4) && (ndef.device.dev.nfca.nfcId1[0] == 0x02 ) )
+            {  
+                ret = true;
+            }
+            break;
+        case RFAL_NFC_LISTEN_TYPE_NFCF:
+            break;
+        case RFAL_NFC_LISTEN_TYPE_NFCB:
+            break;
+        case RFAL_NFC_LISTEN_TYPE_NFCV:
+            if( ndef.device.dev.nfcv.InvRes.UID[6] == 0x02 )
+            {  
+                ret = true;
+            }
+            break;
+        default:
+            break;
+    }
+    return (ret);
+}
+
+static void LedNotificationWriteDone(void)
+{
+    uint32_t i;
+
+    for (i = 0; i < 3; i++)
+    {
+        ledsOn();
+        delay(100);
+
+        ledsOff();
+        delay(100);
+    }
+}
+
+static void ledsOn(void)
+{
+    digitalWrite(LED_A_PIN, HIGH);
+    digitalWrite(LED_B_PIN, HIGH);
+    digitalWrite(LED_F_PIN, HIGH);
+    digitalWrite(LED_V_PIN, HIGH);
+    digitalWrite(LED_AP2P_PIN, HIGH);
+    digitalWrite(LED_FIELD_PIN, HIGH);
+}
+
+static void ledsOff(void)
+{
+    digitalWrite(LED_A_PIN, LOW);
+    digitalWrite(LED_B_PIN, LOW);
+    digitalWrite(LED_F_PIN, LOW);
+    digitalWrite(LED_V_PIN, LOW);
+    digitalWrite(LED_AP2P_PIN, LOW);
+    digitalWrite(LED_FIELD_PIN, LOW);
+}
+
+/*****************************************************************************/
+static bool isPrintableASCII(const uint8_t* str, uint32_t strLen)
+{
+    uint32_t i;
+    
+    if ((str == NULL) || (strLen == 0))
+    {
+        return false;
+    }
+
+    for (i = 0; i < strLen; i++)
+    {
+        if ((str[i] < 0x20) || (str[i] > 0x7E))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+
+/*****************************************************************************/
+ReturnCode ndefRecordDump(const ndefRecord* record, bool verbose)
+{
+    static uint32_t index;
+    const uint8_t *ndefTNFNames[] =
+    {
+        (uint8_t *)"Empty",
+        (uint8_t *)"NFC Forum well-known type [NFC RTD]",
+        (uint8_t *)"Media-type as defined in RFC 2046",
+        (uint8_t *)"Absolute URI as defined in RFC 3986",
+        (uint8_t *)"NFC Forum external type [NFC RTD]",
+        (uint8_t *)"Unknown",
+        (uint8_t *)"Unchanged",
+        (uint8_t *)"Reserved"
+    };
+    uint8_t* headerSR = (uint8_t*)"";
+    ReturnCode err;
+
+    if (record == NULL)
+    {
+        Serial.print("No record\r\n");
+        return ERR_NONE;
+    }
+
+    if (ndefHeaderIsSetMB(record))
+    {
+        index = 1U;
+    }
+    else
+    {
+        index++;
+    }
+
+    if (verbose == true)
+    {
+        headerSR = (uint8_t*)(ndefHeaderIsSetSR(record) ? " - Short Record" : " - Standard Record");
+    }
+
+    Serial.print("Record #");
+    Serial.print(index);
+    Serial.print((char *)headerSR);
+    Serial.print("\r\n");
+
+    /* Well-known type dump */
+    err = ndefRecordDumpType(record);
+    if (verbose == true)
+    {
+        /* Raw dump */
+        //Serial.print(" MB:%d ME:%d CF:%d SR:%d IL:%d TNF:%d\r\n", ndefHeaderMB(record), ndefHeaderME(record), ndefHeaderCF(record), ndefHeaderSR(record), ndefHeaderIL(record), ndefHeaderTNF(record));
+        Serial.print(" MB ME CF SR IL TNF\r\n");
+        Serial.print("  ");
+        Serial.print(ndefHeaderMB(record));
+        Serial.print("  ");
+        Serial.print(ndefHeaderME(record));
+        Serial.print("  ");
+        Serial.print(ndefHeaderCF(record));
+        Serial.print("  ");
+        Serial.print(ndefHeaderSR(record));
+        Serial.print("  ");
+        Serial.print(ndefHeaderIL(record));
+        Serial.print("  ");
+        Serial.print(ndefHeaderTNF(record));
+        Serial.print("\r\n");
+    }
+    if ( (err != ERR_NONE) || (verbose == true) )
+    {
+        Serial.print(" Type Name Format: ");
+        Serial.print((char *)ndefTNFNames[ndefHeaderTNF(record)]);
+        Serial.print("\r\n");
+
+        uint8_t tnf;
+        ndefConstBuffer8 bufRecordType;
+        ndef.ndefRecordGetType(record, &tnf, &bufRecordType);
+        if ( (tnf == NDEF_TNF_EMPTY) && (bufRecordType.length == 0U) )
+        {
+            Serial.print(" Empty NDEF record\r\n");
+        }
+        else
+        {
+            ndefBuffer8Print(" Type: \"", &bufRecordType, "\"\r\n");
+        }
+
+        if (ndefHeaderIsSetIL(record))
+        {
+            /* ID Length bit set */
+            ndefConstBuffer8 bufRecordId;
+            ndef.ndefRecordGetId(record, &bufRecordId);
+            ndefBuffer8Print(" ID: \"", &bufRecordId, "\"\r\n");
+        }
+
+        ndefConstBuffer bufRecordPayload;
+        ndef.ndefRecordGetPayload(record, &bufRecordPayload);
+        ndefBufferDump(" Payload:", &bufRecordPayload, verbose);
+    }
+
+    return ERR_NONE;
+}
+
+
+/*****************************************************************************/
+ReturnCode ndefMessageDump(const ndefMessage* message, bool verbose)
+{
+    ReturnCode  err;
+    ndefRecord* record;
+
+    if (message == NULL)
+    {
+        Serial.print("Empty NDEF message\r\n");
+        return ERR_NONE;
+    }
+    else
+    {
+        Serial.print("Decoding NDEF message\r\n");
+    }
+
+    record = ndefMessageGetFirstRecord(message);
+
+    while (record != NULL)
+    {
+        err = ndefRecordDump(record, verbose);
+        if (err != ERR_NONE)
+        {
+            return err;
+        }
+        record = ndefMessageGetNextRecord(record);
+    }
+
+    return ERR_NONE;
+}
+
+
+/*****************************************************************************/
+ReturnCode ndefEmptyTypeDump(const ndefType* empty)
+{
+    if (empty == NULL)
+    {
+        return ERR_PARAM;
+    }
+
+    if (empty->id != NDEF_TYPE_EMPTY)
+    {
+        return ERR_PARAM;
+    }
+
+    Serial.print(" Empty record\r\n");
+
+    return ERR_NONE;
+}
+
+
+/*****************************************************************************/
+ReturnCode ndefRtdDeviceInfoDump(const ndefType* devInfo)
+{
+    ndefTypeRtdDeviceInfo devInfoData;
+    uint32_t type;
+    uint32_t i;
+
+    const uint8_t* ndefDeviceInfoName[] =
+    {
+        (uint8_t*)"Manufacturer",
+        (uint8_t*)"Model",
+        (uint8_t*)"Device",
+        (uint8_t*)"UUID",
+        (uint8_t*)"Firmware version",
+    };
+
+    if (devInfo == NULL)
+    {
+        return ERR_PARAM;
+    }
+
+    if (devInfo->id != NDEF_TYPE_RTD_DEVICE_INFO)
+    {
+        return ERR_PARAM;
+    }
+
+    ndef.ndefGetRtdDeviceInfo(devInfo, &devInfoData);
+
+    Serial.print(" Device Information:\r\n");
+
+    for (type = 0; type < NDEF_DEVICE_INFO_TYPE_COUNT; type++)
+    {
+        if (devInfoData.devInfo[type].buffer != NULL)
+        {
+            Serial.print(" - ");
+            Serial.print((char *)ndefDeviceInfoName[devInfoData.devInfo[type].type]);
+            Serial.print(": ");
+
+            if (type != NDEF_DEVICE_INFO_UUID)
+            {
+                for (i = 0; i < devInfoData.devInfo[type].length; i++)
+                {
+                    Serial.print(devInfoData.devInfo[type].buffer[i]); /* character */
+                }
+            }
+            else
+            {
+                for (i = 0; i < devInfoData.devInfo[type].length; i++)
+                {
+                    Serial.print(devInfoData.devInfo[type].buffer[i], HEX); /* hex number */
+                }
+            }
+            Serial.print("\r\n");
+        }
+    }
+
+    return ERR_NONE;
+}
+
+
+/*****************************************************************************/
+ReturnCode ndefRtdTextDump(const ndefType* text)
+{
+    uint8_t utfEncoding;
+    ndefConstBuffer8 bufLanguageCode;
+    ndefConstBuffer  bufSentence;
+
+    if (text == NULL)
+    {
+        return ERR_PARAM;
+    }
+
+    if (text->id != NDEF_TYPE_RTD_TEXT)
+    {
+        return ERR_PARAM;
+    }
+
+    ndef.ndefGetRtdText(text, &utfEncoding, &bufLanguageCode, &bufSentence);
+
+    ndefBufferPrint(" Text: \"", &bufSentence, "");
+
+    Serial.print("\" (");
+    Serial.print((utfEncoding == TEXT_ENCODING_UTF8 ? "UTF8" : "UTF16"));
+    Serial.print(",");
+
+    ndefBuffer8Print(" language code \"", &bufLanguageCode, "\")\r\n");
+
+    return ERR_NONE;
+}
+
+
+/*****************************************************************************/
+ReturnCode ndefRtdUriDump(const ndefType* uri)
+{
+    ndefConstBuffer bufProtocol;
+    ndefConstBuffer bufUriString;
+
+    if (uri == NULL)
+    {
+        return ERR_PARAM;
+    }
+
+    if (uri->id != NDEF_TYPE_RTD_URI)
+    {
+        return ERR_PARAM;
+    }
+
+    ndef.ndefGetRtdUri(uri, &bufProtocol, &bufUriString);
+
+    ndefBufferPrint("URI: (", &bufProtocol, ")");
+    ndefBufferPrint("", &bufUriString, "\r\n");
+
+    return ERR_NONE;
+}
+
+
+/*****************************************************************************/
+ReturnCode ndefRtdAarDump(const ndefType* aar)
+{
+    ndefConstBuffer bufAarString;
+
+    if (aar == NULL)
+    {
+        return ERR_PARAM;
+    }
+
+    if (aar->id != NDEF_TYPE_RTD_AAR)
+    {
+        return ERR_PARAM;
+    }
+
+    ndef.ndefGetRtdAar(aar, &bufAarString);
+
+    ndefBufferPrint(" AAR Package: ", &bufAarString, "\r\n");
+
+    return ERR_NONE;
+}
+
+
+/*****************************************************************************/
+static ReturnCode ndefMediaVCardTranslate(const ndefConstBuffer* bufText, ndefConstBuffer* bufTranslation)
+{
+    typedef struct {
+        uint8_t* vCardString;
+        uint8_t* english;
+    } ndefTranslate;
+
+    const ndefTranslate translate[] =
+    {
+        { (uint8_t*)"N"            , (uint8_t*)"Name"           },
+        { (uint8_t*)"FN"           , (uint8_t*)"Formatted Name" },
+        { (uint8_t*)"ADR"          , (uint8_t*)"Address"        },
+        { (uint8_t*)"TEL"          , (uint8_t*)"Phone"          },
+        { (uint8_t*)"EMAIL"        , (uint8_t*)"Email"          },
+        { (uint8_t*)"TITLE"        , (uint8_t*)"Title"          },
+        { (uint8_t*)"ORG"          , (uint8_t*)"Org"            },
+        { (uint8_t*)"URL"          , (uint8_t*)"URL"            },
+        { (uint8_t*)"PHOTO"        , (uint8_t*)"Photo"          },
+    };
+
+    uint32_t i;
+
+    if ( (bufText == NULL) || (bufTranslation == NULL) )
+    {
+        return ERR_PROTO;
+    }
+
+    for (i = 0; i < SIZEOF_ARRAY(translate); i++)
+    {
+        if (ST_BYTECMP(bufText->buffer, translate[i].vCardString, strlen((char*)translate[i].vCardString)) == 0)
+        {
+            bufTranslation->buffer = translate[i].english;
+            bufTranslation->length = strlen((char*)translate[i].english);
+
+            return ERR_NONE;
+        }
+    }
+
+    bufTranslation->buffer = bufText->buffer;
+    bufTranslation->length = bufText->length;
+
+    return ERR_NONE;
+}
+
+
+/*****************************************************************************/
+ReturnCode ndefMediaVCardDump(const ndefType* vCard)
+{
+    ndefConstBuffer bufTypeN     = { (uint8_t*)"N",     strlen((char*)"N")     };
+    ndefConstBuffer bufTypeFN    = { (uint8_t*)"FN",    strlen((char*)"FN")    };
+    ndefConstBuffer bufTypeADR   = { (uint8_t*)"ADR",   strlen((char*)"ADR")   };
+    ndefConstBuffer bufTypeTEL   = { (uint8_t*)"TEL",   strlen((char*)"TEL")   };
+    ndefConstBuffer bufTypeEMAIL = { (uint8_t*)"EMAIL", strlen((char*)"EMAIL") };
+    ndefConstBuffer bufTypeTITLE = { (uint8_t*)"TITLE", strlen((char*)"TITLE") };
+    ndefConstBuffer bufTypeORG   = { (uint8_t*)"ORG",   strlen((char*)"ORG")   };
+    ndefConstBuffer bufTypeURL   = { (uint8_t*)"URL",   strlen((char*)"URL")   };
+    ndefConstBuffer bufTypePHOTO = { (uint8_t*)"PHOTO", strlen((char*)"PHOTO") };
+
+    const ndefConstBuffer* bufVCardField[] = {
+        &bufTypeN    ,
+        &bufTypeFN   ,
+        &bufTypeADR  ,
+        &bufTypeTEL  ,
+        &bufTypeEMAIL,
+        &bufTypeTITLE,
+        &bufTypeORG  ,
+        &bufTypeURL  ,
+        &bufTypePHOTO,
+    };
+
+    uint32_t i;
+    const ndefConstBuffer* bufType;
+    ndefConstBuffer        bufSubType;
+    ndefConstBuffer        bufValue;
+
+    if (vCard == NULL)
+    {
+        return ERR_PARAM;
+    }
+
+    if (vCard->id != NDEF_TYPE_MEDIA_VCARD)
+    {
+        return ERR_PARAM;
+    }
+
+    Serial.print(" vCard decoded: \r\n");
+
+    for (i = 0; i < SIZEOF_ARRAY(bufVCardField); i++)
+    {
+        /* Requesting vCard field */
+        bufType = bufVCardField[i];
+
+        /* Get information from vCard */
+        ndef.ndefGetVCard(vCard, bufType, &bufSubType, &bufValue);
+
+        if (bufValue.buffer != NULL)
+        {
+            ndefConstBuffer bufTypeTranslate;
+            ndefMediaVCardTranslate(bufType, &bufTypeTranslate);
+
+            /* Type */
+            ndefBufferPrint(" ", &bufTypeTranslate, "");
+
+            /* Subtype, if any */
+            if (bufSubType.buffer != NULL)
+            {
+                ndefBufferPrint(" (", &bufSubType, ")");
+            }
+
+            /* Value */
+            if (ST_BYTECMP(bufType->buffer, bufTypePHOTO.buffer, bufTypePHOTO.length) != 0)
+            {
+                ndefBufferPrint(": ", &bufValue, "\r\n");
+            }
+            else
+            {
+                Serial.print("Photo: <Not displayed>\r\n");
+            }
+        }
+    }
+
+    return ERR_NONE;
+}
+
+
+/*****************************************************************************/
+ReturnCode ndefMediaWifiDump(const ndefType* wifi)
+{
+    ndefTypeWifi wifiConfig;
+
+    if (wifi == NULL)
+    {
+        return ERR_PARAM;
+    }
+
+    if (wifi->id != NDEF_TYPE_MEDIA_WIFI)
+    {
+        return ERR_PARAM;
+    }
+
+    ndef.ndefGetWifi(wifi, &wifiConfig);
+
+    Serial.print(" Wifi config: \r\n");
+    ndefBufferDump(" Network SSID:",       &wifiConfig.bufNetworkSSID, false);
+    ndefBufferDump(" Network Key:",        &wifiConfig.bufNetworkKey, false);
+    Serial.print(" Authentication: ");
+    Serial.print(wifiConfig.authentication);
+    Serial.print("\r\n");
+    Serial.print(" Encryption: ");
+    Serial.print(wifiConfig.encryption);
+    Serial.print("\r\n");
+
+    return ERR_NONE;
+}
+
+
+/*****************************************************************************/
+ReturnCode ndefRecordDumpType(const ndefRecord* record)
+{
+    ReturnCode err;
+    ndefType   type;
+    uint32_t i;
+
+    err = ndef.ndefRecordToType(record, &type);
+    if (err != ERR_NONE)
+    {
+        return err;
+    }
+
+    for (i = 0; i < SIZEOF_ARRAY(typeDumpTable); i++)
+    {
+        if (type.id == typeDumpTable[i].typeId)
+        {
+            /* Call the appropriate function to the matching record type */
+            if (typeDumpTable[i].dump != NULL)
+            {
+                return typeDumpTable[i].dump(&type);
+            }
+        }
+    }
+
+    return ERR_NOT_IMPLEMENTED;
+}
+
+
+/*****************************************************************************/
+static ReturnCode ndefBufferDumpLine(const uint8_t* buffer, const uint32_t offset, uint32_t lineLength, uint32_t remaining)
+{
+    uint32_t j;
+
+    if (buffer == NULL)
+    {
+        return ERR_PARAM;
+    }
+
+    Serial.print(" [");
+    Serial.print(offset, HEX);
+    Serial.print("] ");
+
+    /* Dump hex data */
+    for (j = 0; j < remaining; j++)
+    {
+        Serial.print(buffer[offset + j], HEX);
+        Serial.print(" ");
+    }
+    /* Fill hex section if needed */
+    for (j = 0; j < lineLength - remaining; j++)
+    {
+        Serial.print("   ");
+    }
+
+    /* Dump characters */
+    Serial.print("|");
+    for (j = 0; j < remaining; j++)
+    {
+        /* Dump only ASCII characters, otherwise replace with a '.' */
+        Serial.print((isPrintableASCII(&buffer[offset + j], 1) ? (char)buffer[offset + j] : '.'));
+    }
+    /* Fill ASCII section if needed */
+    for (j = 0; j < lineLength - remaining; j++)
+    {
+        Serial.print("  ");
+    }
+    Serial.print(" |\r\n");
+
+    return ERR_NONE;
+}
+
+
+/*****************************************************************************/
+ReturnCode ndefBufferDump(const char* string, const ndefConstBuffer* bufPayload, bool verbose)
+{
+    uint32_t bufferLengthMax = 32;
+    const uint32_t lineLength = 8;
+    uint32_t displayed;
+    uint32_t remaining;
+    uint32_t offset;
+
+    if ( (string == NULL) || (bufPayload == NULL) )
+    {
+        return ERR_PARAM;
+    }
+
+    displayed = bufPayload->length;
+    remaining = bufPayload->length;
+
+    Serial.print(string);
+    Serial.print(" (length ");
+    Serial.print(bufPayload->length);
+    Serial.print(")\r\n");
+    if (bufPayload->buffer == NULL)
+    {
+        Serial.print(" <No chunk payload buffer>\r\n");
+        return ERR_NONE;
+    }
+
+    if (verbose == true)
+    {
+        bufferLengthMax = 256;
+    }
+    if (bufPayload->length > bufferLengthMax)
+    {
+        /* Truncate output */
+        displayed = bufferLengthMax;
+    }
+
+    for (offset = 0; offset < displayed; offset += lineLength)
+    {
+        ndefBufferDumpLine(bufPayload->buffer, offset, lineLength, remaining > lineLength ? lineLength : remaining);
+        remaining -= lineLength;
+    }
+
+    if (displayed < bufPayload->length)
+    {
+        Serial.print(" ... (truncated)\r\n");
+    }
+
+    return ERR_NONE;
+}
+
+
+/*****************************************************************************/
+ReturnCode ndefBufferPrint(const char* prefix, const ndefConstBuffer* bufString, const char* suffix)
+{
+    uint32_t i;
+
+    if ( (prefix == NULL) || (bufString == NULL) || (bufString->buffer == NULL) || (suffix  == NULL))
+    {
+        return ERR_PARAM;
+    }
+
+    Serial.print(prefix);
+    for (i = 0; i < bufString->length; i++)
+    {
+        Serial.print((char)bufString->buffer[i]);
+    }
+    Serial.print(suffix);
+
+    return ERR_NONE;
+}
+
+
+/*****************************************************************************/
+ReturnCode ndefBuffer8Print(const char* prefix, const ndefConstBuffer8* bufString, const char* suffix)
+{
+    ndefConstBuffer buf;
+
+    if (bufString == NULL)
+    {
+        return ERR_PARAM;
+    }
+
+    buf.buffer = bufString->buffer;
+    buf.length = bufString->length;
+
+    return ndefBufferPrint(prefix, &buf, suffix);
+}
+
 char* hex2Str(unsigned char * data, size_t dataLen)
 {
-  
-  if (USE_LOGGER == 1)
+  unsigned char * pin = data;
+  const char * hex = "0123456789ABCDEF";
+  char * pout = hexStr[hexStrIdx];
+  uint8_t i = 0;
+  uint8_t idx = hexStrIdx;
+  size_t len;  
+    
+  if(dataLen == 0)
   {
-    unsigned char * pin = data;
-    const char * hex = "0123456789ABCDEF";
-    char * pout = hexStr[hexStrIdx];
-    uint8_t i = 0;
-    uint8_t idx = hexStrIdx;
-    size_t len;  
-      
-    if(dataLen == 0)
+    pout[0] = 0;     
+  } 
+  else     
+  {
+    /* Trim data that doesn't fit in buffer */
+    len = MIN( dataLen , (MAX_HEX_STR_LENGTH / 2) );
+    
+    for(; i < (len - 1); ++i)
     {
-      pout[0] = 0;     
-    } 
-    else     
-    {
-      /* Trim data that doesn't fit in buffer */
-      len = MIN( dataLen , (MAX_HEX_STR_LENGTH / 2) );
-        
-      for(; i < (len - 1); ++i)
-      {
-          *pout++ = hex[(*pin>>4)&0xF];
-          *pout++ = hex[(*pin++)&0xF];
-      }
       *pout++ = hex[(*pin>>4)&0xF];
-      *pout++ = hex[(*pin)&0xF];
-      *pout = 0;
-    }    
-    
-    hexStrIdx++;
-    hexStrIdx %= MAX_HEX_STR;
-    
-    return hexStr[idx];
-  }
-  else
-  {
-    return NULL;
-  }
+      *pout++ = hex[(*pin++)&0xF];
+    }
+    *pout++ = hex[(*pin>>4)&0xF];
+    *pout++ = hex[(*pin)&0xF];
+    *pout = 0;
+  }    
+
+  hexStrIdx++;
+  hexStrIdx %= MAX_HEX_STR;
+
+  return hexStr[idx];
 }
+
+void IRQCallback()
+{
+  rfst25r3911b.st25r3911Isr();
+}
+
+/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

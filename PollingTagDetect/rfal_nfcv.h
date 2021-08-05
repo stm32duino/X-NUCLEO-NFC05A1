@@ -1,7 +1,70 @@
-#ifndef RFAL_NFV_H
+
+/******************************************************************************
+  * \attention
+  *
+  * <h2><center>&copy; COPYRIGHT 2016 STMicroelectronics</center></h2>
+  *
+  * Licensed under ST MYLIBERTY SOFTWARE LICENSE AGREEMENT (the "License");
+  * You may not use this file except in compliance with the License.
+  * You may obtain a copy of the License at:
+  *
+  *        www.st.com/myliberty
+  *
+  * Unless required by applicable law or agreed to in writing, software 
+  * distributed under the License is distributed on an "AS IS" BASIS, 
+  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied,
+  * AND SPECIFICALLY DISCLAIMING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
+  * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  *
+******************************************************************************/
+
+/*
+ *      PROJECT:   ST25R391x firmware
+ *      Revision:
+ *      LANGUAGE:  ISO C99
+ */
+
+/*! \file rfal_nfcv.h
+ *
+ *  \author Gustavo Patricio
+ *
+ *  \brief Implementation of NFC-V Poller (ISO15693) device
+ *
+ *  The definitions and helpers methods provided by this module 
+ *  are aligned with NFC-V Digital 2.1
+ *
+ *
+ * \addtogroup RFAL
+ * @{
+ *
+ * \addtogroup RFAL-AL
+ * \brief RFAL Abstraction Layer
+ * @{
+ *
+ * \addtogroup NFC-V
+ * \brief RFAL NFC-V Module
+ * @{
+ * 
+ */
+
+#ifndef RFAL_NFCV_H
 #define RFAL_NFCV_H
 
-/* DEFINE */
+/*
+ ******************************************************************************
+ * INCLUDES
+ ******************************************************************************
+ */
+#include "st_errno.h"
+#include "rfal_rf.h"
+
+/*
+ ******************************************************************************
+ * GLOBAL DEFINES
+ ******************************************************************************
+ */
 
 #define RFAL_NFCV_UID_LEN                 8U              /*!< NFC-V UID length                                             */
 #define RFAL_NFCV_MAX_BLOCK_LEN           32U             /*!< Max Block size: can be of up to 256 bits  ISO 15693 2000  5  */
@@ -12,8 +75,9 @@
 #define RFAL_NFCV_BLOCKNUM_EXTENDED_LEN   2U              /*!< Block Number length on extended commands: 16 bits            */
 #define RFAL_NFCV_PARAM_SKIP              0U              /*!< Skip proprietary Param Request                               */
                                                                                                                             
-/* ENUM */
-
+                                                                                                                            
+                                                                                                                            
+                                                                                                                            
 /*! NFC-V RequestFlags   ISO15693 2000 7.3.1 */                                                                             
 enum{                                                                                                                       
     RFAL_NFCV_REQ_FLAG_DEFAULT           = 0x02U,         /*!< Default Request Flags                                        */
@@ -121,10 +185,20 @@ enum
     RFAL_NFCV_SYSINFO_CSI        = 0x40U,                 /*!< Get System info CSI flag                                     */
     RFAL_NFCV_SYSINFO_REQ_ALL    = 0x7FU                  /*!< Get System info request of all parameters                    */
 };
-/* MACROS */
+
+/*
+ ******************************************************************************
+ * GLOBAL MACROS
+ ******************************************************************************
+ */
 
 
-/* STRUCT */
+/*
+******************************************************************************
+* GLOBAL TYPES
+******************************************************************************
+*/
+
 /*! NFC-V Number of slots  Digital 2.0  9.6.1 */
 typedef enum 
 {
@@ -171,4 +245,20 @@ typedef struct
 } rfalNfcvListenDevice;
 
 
-#endif
+/*
+******************************************************************************
+* GLOBAL FUNCTION PROTOTYPES
+******************************************************************************
+*/
+
+
+#endif /* RFAL_NFCV_H */
+
+/**
+  * @}
+  *
+  * @}
+  *
+  * @}
+  */
+
