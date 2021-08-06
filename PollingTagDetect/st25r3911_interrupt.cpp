@@ -112,9 +112,7 @@ void RfalRfST25R3911BClass::st25r3911CheckForReceivedInterrupts( void )
     }
     
     /* Forward all interrupts, even masked ones to application. */
-    //platformProtectST25R391xIrqStatus();
     st25r3911interrupt.status |= irqStatus;
-    //platformUnprotectST25R391xIrqStatus();
 }
 
 
@@ -152,9 +150,7 @@ uint32_t RfalRfST25R3911BClass::st25r3911WaitForInterruptsTimed(uint32_t mask, u
 
     status = st25r3911interrupt.status & mask;
     
-    //platformProtectST25R391xIrqStatus();
     st25r3911interrupt.status &= ~status;
-    //platformUnprotectST25R391xIrqStatus();
     
     return status;
 }
@@ -166,9 +162,7 @@ uint32_t RfalRfST25R3911BClass::st25r3911GetInterrupt(uint32_t mask)
     irqs = (st25r3911interrupt.status & mask);
     if (irqs != ST25R3911_IRQ_MASK_NONE)
     {
-        //platformProtectST25R391xIrqStatus();
         st25r3911interrupt.status &= ~irqs;
-        //platformUnprotectST25R391xIrqStatus();
     }
     return irqs;
 }
@@ -189,9 +183,8 @@ void RfalRfST25R3911BClass::st25r3911ClearInterrupts( void )
 
     st25r3911ReadMultipleRegisters(ST25R3911_REG_IRQ_MAIN, iregs, 3);
 
-    //platformProtectST25R391xIrqStatus();
     st25r3911interrupt.status = 0;
-    //platformUnprotectST25R391xIrqStatus();
+
     return;
 }
 

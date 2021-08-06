@@ -346,6 +346,7 @@ void loop() {
     if( (ndefDemoFeature != NDEF_DEMO_READ) && (rfst25r3911b.timerIsExpired(timer)) )
     {
         Serial.print("Timer expired, back to Read mode...\r\n");
+        ledsOff();
         ndefDemoFeature = NDEF_DEMO_READ;
     }
     
