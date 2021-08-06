@@ -1,13 +1,13 @@
 /******************************************************************************
-  * @attention
+  * \attention
   *
-  * <h2><center>&copy; COPYRIGHT 2016 STMicroelectronics</center></h2>
+  * <h2><center>&copy; COPYRIGHT 2021 STMicroelectronics</center></h2>
   *
-  * Licensed under ST MYLIBERTY SOFTWARE LICENSE AGREEMENT (the "License");
+  * Licensed under ST MIX MYLIBERTY SOFTWARE LICENSE AGREEMENT (the "License");
   * You may not use this file except in compliance with the License.
   * You may obtain a copy of the License at:
   *
-  *        www.st.com/myliberty
+  *        www.st.com/mix_myliberty
   *
   * Unless required by applicable law or agreed to in writing, software 
   * distributed under the License is distributed on an "AS IS" BASIS, 
@@ -18,17 +18,13 @@
   * limitations under the License.
   *
 ******************************************************************************/
-/*
- *      PROJECT:   ST25R391x firmware
- *      $Revision: $
- *      LANGUAGE:  ANSI C
- */
 
-/*! \file timer.c
+/*! \file
+ *
+ *  \author SRA
  *
  *  \brief SW Timer implementation
  *
- *  \author Gustavo Patricio
  *
  *   This module makes use of a System Tick in millisconds and provides
  *   an abstraction for SW timers
@@ -41,7 +37,6 @@
 ******************************************************************************
 */
 #include "rfal_rfst25r3911.h"
-#include "st25r3911_timer.h"
 
 
 /*
