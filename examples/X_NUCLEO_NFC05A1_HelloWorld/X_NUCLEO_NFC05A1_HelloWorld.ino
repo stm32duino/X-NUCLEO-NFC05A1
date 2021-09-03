@@ -232,7 +232,7 @@ void IRQCallback();
  *****************************************************************************
  * \brief Check user button
  *
- *  This function check whethe the user button has been pressed
+ *  This function check whether the user button has been pressed
  *****************************************************************************
  */
 
@@ -586,7 +586,7 @@ void demoP2P(void)
   ndefRecord  record;
   ndefType    uri;
 
-  Serial.print(" Initalize device .. ");
+  Serial.print(" Initialize device .. ");
   err = demoTransceiveBlocking(ndefInit, sizeof(ndefInit), &rxData, &rxLen, RFAL_FWT_NONE);
   if (err != ERR_NONE) {
     Serial.print("failed.");
@@ -651,7 +651,7 @@ void demoP2P(void)
  * refer to the Examples available with RFAL
  *
  * \param[in]  txBuf      : data to be transmitted
- * \param[in]  txBufSize  : size of the data to be transmited
+ * \param[in]  txBufSize  : size of the data to be transmitted
  * \param[out] rxData     : location where the received data has been placed
  * \param[out] rcvLen     : number of data bytes received
  * \param[in]  fwt        : FWT to be used (only for RF frame interface,
