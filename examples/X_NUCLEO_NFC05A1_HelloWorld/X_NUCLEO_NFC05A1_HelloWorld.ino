@@ -53,7 +53,6 @@
  * INCLUDES
  ******************************************************************************
  */
-#include "SPI.h"
 #include "nfc_utils.h"
 #include "rfal_nfc.h"
 #include "rfal_rfst25r3911.h"
@@ -225,7 +224,6 @@ static const ndefTypeDumpTable typeDumpTable[] = {
 };
 
 static char *hex2Str(unsigned char *data, size_t dataLen);
-void IRQCallback();
 
 
 /*!
@@ -296,13 +294,10 @@ void setup()
   pinMode(LED_V_PIN, OUTPUT);
   pinMode(LED_AP2P_PIN, OUTPUT);
   pinMode(LED_FIELD_PIN, OUTPUT);
-  pinMode(IRQ_PIN, INPUT);
   pinMode(USER_BTN, INPUT);
 
   /* Check what is the Push Button State when the button is not pressed. It can change across families */
   PushButtonState = (digitalRead(USER_BTN)) ?  0 : 1;
-
-  attachInterrupt(IRQ_PIN, IRQCallback, RISING);
 
   Serial.println("Welcome to X-NUCLEO-NFC05A1");
 
@@ -1795,11 +1790,6 @@ char *hex2Str(unsigned char *data, size_t dataLen)
   hexStrIdx %= MAX_HEX_STR;
 
   return hexStr[idx];
-}
-
-void IRQCallback()
-{
-  rfst25r3911b.st25r3911Isr();
 }
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
